@@ -1,0 +1,12 @@
+# OWASP Juice Shop — 웹 취약점 데모 앱 (WAF 업스트림으로 사용)
+# 시작: docker compose up -d
+# 브라우저: http://127.0.0.1:3000 (직접) 또는 프록시 경유는 README 참고
+
+name: ai-security-system
+
+services:
+  juice-shop:
+    image: bkimminich/juice-shop:latest
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
