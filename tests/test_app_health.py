@@ -16,3 +16,4 @@ def test_proxy_health_ok() -> None:
     assert "upstream" in data
     assert "waf_enabled" in data
     assert "waf_block_min_severity" in data
+    assert data.get("dashboard_path") == "/__waf/dashboard"

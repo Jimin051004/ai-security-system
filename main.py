@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import httpx
 import jinja2
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from detector import (
     all_findings,
@@ -72,6 +72,25 @@ _jinja_env = jinja2.Environment(
 )
 
 METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
+
+# Juice Shop 등 업스트림에도 /dashboard·/api/... 가 있어 catch-all에 먹히면 프록시 UI 대신 업스트림이 뜸.
+# 프록시 전용 UI는 항상 이 접두사(및 아래 예외 경로)로만 노출.
+WAF_UI_PREFIX = "/__waf"
+
+
+def _normalize_proxy_path_segment(full_path: str) -> str:
+    """catch-all 에서 온 하위 경로 정규화 (끝 슬래시·대소문자 비교용)."""
+    return (full_path or "").strip().rstrip("/")
+
+
+def _is_waf_dashboard_path(norm: str) -> bool:
+    n = norm.casefold()
+    return n == "dashboard" or n == "__waf/dashboard"
+
+
+def _is_waf_summary_api_path(norm: str) -> bool:
+    n = norm.casefold()
+    return n in ("api/dashboard/summary", "__waf/api/summary")
 
 
 async def _probe_upstream() -> tuple[bool, str]:
@@ -184,23 +203,47 @@ async def proxy_health() -> dict[str, Any]:
         "upstream": UPSTREAM_BASE,
         "waf_enabled": _waf_enabled(),
         "waf_block_min_severity": _waf_block_min_severity().value,
+        "dashboard_path": f"{WAF_UI_PREFIX}/dashboard",
     }
 
 
-@app.get("/api/dashboard/summary")
 async def api_dashboard_summary() -> dict[str, Any]:
     up_ok, up_err = await _probe_upstream()
     return _dashboard_summary_dict(upstream_ok=up_ok, upstream_error=up_err)
 
 
-@app.get("/dashboard")
-async def dashboard_page(request: Request):
+async def dashboard_page(request: Request) -> HTMLResponse:
     up_ok, up_err = await _probe_upstream()
     initial = _dashboard_summary_dict(upstream_ok=up_ok, upstream_error=up_err)
     boot_json = json.dumps(initial, ensure_ascii=False)
     tpl = _jinja_env.get_template("dashboard.html")
     html = tpl.render(upstream=UPSTREAM_BASE, boot_json=boot_json)
     return HTMLResponse(html)
+
+
+@app.get("/__waf/dashboard")
+async def waf_dashboard_canonical(request: Request) -> HTMLResponse:
+    return await dashboard_page(request)
+
+
+@app.get("/__waf/api/summary")
+async def waf_api_summary_canonical() -> dict[str, Any]:
+    return await api_dashboard_summary()
+
+
+@app.get("/api/dashboard/summary")
+async def api_dashboard_summary_legacy() -> dict[str, Any]:
+    return await api_dashboard_summary()
+
+
+@app.get("/dashboard")
+async def dashboard_legacy_redirect() -> RedirectResponse:
+    return RedirectResponse(url=f"{WAF_UI_PREFIX}/dashboard", status_code=307)
+
+
+@app.get("/dashboard/")
+async def dashboard_legacy_redirect_slash() -> RedirectResponse:
+    return RedirectResponse(url=f"{WAF_UI_PREFIX}/dashboard", status_code=307)
 
 
 @app.api_route("/", methods=METHODS)
@@ -213,8 +256,17 @@ async def proxy_root(request: Request) -> Response:
 
 @app.api_route("/{full_path:path}", methods=METHODS)
 async def proxy_path(full_path: str, request: Request) -> Response:
-    # Reserve /__proxy/* (나머지 경로는 구체 라우트가 먼저 매칭됨 — /dashboard, /api/dashboard/summary)
+    # Reserve /__proxy/*
     if full_path == "__proxy" or full_path.startswith("__proxy/"):
+        return Response(status_code=404)
+    # catch-all 이 정적 라우트보다 먼저 잡히는 경우 → 업스트림 /dashboard 대신 프록시 UI
+    norm = _normalize_proxy_path_segment(full_path)
+    if request.method == "GET" and _is_waf_dashboard_path(norm):
+        return await dashboard_page(request)
+    if request.method == "GET" and _is_waf_summary_api_path(norm):
+        return await api_dashboard_summary()
+    # 나머지 /__waf/* 는 업스트림으로 보내지 않음
+    if full_path == "__waf" or full_path.startswith("__waf/"):
         return Response(status_code=404)
     blocked = await _waf_response_or_none(request)
     if blocked is not None:

@@ -47,12 +47,13 @@ curl -s http://127.0.0.1:8080/__proxy/health | python3 -m json.tool
 
 `status`, `upstream`, `waf_enabled`, `waf_block_min_severity` 가 보이면 정상.
 
-### 웹 대시보드
+### 웹 대시보드 (반드시 프록시 포트)
 
-프록시가 떠 있는 동안 브라우저에서:
+- **http://127.0.0.1:8080/__waf/dashboard** — WAF 대시보드 (업스트림·설정·자동 갱신)  
+- **http://127.0.0.1:8080/__waf/api/summary** — 동일 내용 JSON  
+- `/dashboard` 로 열면 **`/__waf/dashboard` 로 307 리다이렉트** (단, 요청이 프록시(8080)로 와야 함)  
 
-- **http://127.0.0.1:8080/dashboard** — 업스트림 연결 여부, WAF 설정, 15초마다 자동 갱신  
-- **http://127.0.0.1:8080/api/dashboard/summary** — 동일 내용 JSON
+**주의:** `http://127.0.0.1:3001/...` 는 Juice Shop 직통이라 대시보드가 아님.
 
 ### 프록시 통과 (WAF가 막지 않을 때)
 

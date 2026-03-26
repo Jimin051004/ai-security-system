@@ -33,7 +33,7 @@ test -f .env || cp .env.example .env
 `python3 -m uvicorn main:app --host 127.0.0.1 --port 8080`  
 (이때도 `pip install -r requirements.txt` 는 사용자/venv 중 한 곳에는 한 번 필요.)
 
-**웹 대시보드:** 프록시 실행 후 브라우저에서 `http://127.0.0.1:8080/dashboard` — 업스트림·WAF 상태 확인. JSON만: `GET /api/dashboard/summary`.
+**웹 대시보드(프록시 전용):** `uvicorn` 포트(예: 8080)로 접속 — **`http://127.0.0.1:8080/__waf/dashboard`**. (`:3001` 등 업스트림 포트로 열면 Juice Shop만 보임.) JSON: `GET /__waf/api/summary` (기존 `/api/dashboard/summary` 도 동작).
 
 1. **Juice Shop** (Docker): **`docker compose -f docker-compose.yml up -d`** — 호스트 포트 **`3001:3000`** (`http://127.0.0.1:3001`). `docker compose up` 만 쓰면 `compose.yaml` 등과 **병합**될 수 있다. 자세한 점검은 [docs/JUICE_SHOP_NETWORK_SETUP.md](docs/JUICE_SHOP_NETWORK_SETUP.md) §4.
 2. **프록시:** (위에서 `activate` 한 상태에서) `uvicorn main:app --host 127.0.0.1 --port 8080` → `http://127.0.0.1:8080` , 헬스: `/__proxy/health` (`.env` 의 `WAF_*`). 타깃은 **`UPSTREAM_URL`만** 바꿔 교체.
