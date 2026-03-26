@@ -6,8 +6,8 @@
 
 ```bash
 cd /path/to/ai-security-system
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+python3 -m venv system
+source system/bin/activate         # Windows: system\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
 pytest -q
 ```
@@ -21,12 +21,12 @@ pytest -q
 
 ### 준비
 
-**`.venv`가 없으면** `source .venv/bin/activate` → `no such file`, `uvicorn` → `command not found` 가 난다. 먼저 만든다:
+**`system`(가상환경) 폴더가 없으면** `source` / `uvicorn` 이 실패한다. 먼저 만든다:
 
 ```bash
 cd /path/to/ai-security-system
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv system
+source system/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 ```
@@ -46,6 +46,13 @@ curl -s http://127.0.0.1:8080/__proxy/health | python3 -m json.tool
 ```
 
 `status`, `upstream`, `waf_enabled`, `waf_block_min_severity` 가 보이면 정상.
+
+### 웹 대시보드
+
+프록시가 떠 있는 동안 브라우저에서:
+
+- **http://127.0.0.1:8080/dashboard** — 업스트림 연결 여부, WAF 설정, 15초마다 자동 갱신  
+- **http://127.0.0.1:8080/api/dashboard/summary** — 동일 내용 JSON
 
 ### 프록시 통과 (WAF가 막지 않을 때)
 
@@ -86,8 +93,8 @@ curl -s "http://127.0.0.1:8080/search?q=test%27%20OR%201%3D1--"
 
 | 증상 | 점검 |
 |------|------|
-| `source: no such file ... .venv/bin/activate` | `python3 -m venv .venv` 로 가상환경 생성 후 다시 `source` |
-| `command not found: uvicorn` | `source .venv/bin/activate` 후 `pip install -r requirements.txt` 또는 `python3 -m uvicorn ...` |
+| `source: no such file ... system/bin/activate` | `python3 -m venv system` 후 `source system/bin/activate` |
+| `command not found: uvicorn` | `source system/bin/activate` 후 `pip install -r requirements.txt` 또는 `python3 -m uvicorn ...` |
 | 502 Upstream unreachable | `UPSTREAM_URL`, 업스트림 프로세스/Docker |
 | 연결 거부 | uvicorn 포트(8080)·`--host` |
 | import 오류 | 저장소 루트에서 실행, `PYTHONPATH` 또는 `cd` 확인 |

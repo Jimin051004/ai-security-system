@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+import jinja2
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from detector import (
     all_findings,
@@ -62,8 +65,41 @@ HOP_BY_HOP = frozenset(
 )
 
 app = FastAPI(title="AI Security System", description="Reverse proxy to upstream web app")
+_BASE = Path(__file__).resolve().parent
+_jinja_env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(str(_BASE / "templates")),
+    autoescape=jinja2.select_autoescape(["html", "xml"]),
+)
 
 METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
+
+
+async def _probe_upstream() -> tuple[bool, str]:
+    """업스트림에 연결 가능한지 확인(404 등은 서버가 살아 있는 것으로 간주, 5xx·연결 실패만 불량)."""
+    timeout = httpx.Timeout(3.0)
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            r = await client.head(UPSTREAM_BASE, timeout=timeout)
+            if r.status_code == 405:
+                r = await client.get(UPSTREAM_BASE, timeout=timeout)
+            ok = r.status_code < 500
+            return (ok, "" if ok else f"HTTP {r.status_code}")
+    except httpx.HTTPError as exc:
+        return (False, str(exc)[:200])
+    except OSError as exc:
+        return (False, str(exc)[:200])
+
+
+def _dashboard_summary_dict(*, upstream_ok: bool, upstream_error: str) -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "upstream": UPSTREAM_BASE,
+        "upstream_ok": upstream_ok,
+        "upstream_error": upstream_error,
+        "waf_enabled": _waf_enabled(),
+        "waf_block_min_severity": _waf_block_min_severity().value,
+        "body_preview_max": _body_preview_max(),
+    }
 
 
 def _upstream_headers(request: Request) -> dict[str, str]:
@@ -151,6 +187,22 @@ async def proxy_health() -> dict[str, Any]:
     }
 
 
+@app.get("/api/dashboard/summary")
+async def api_dashboard_summary() -> dict[str, Any]:
+    up_ok, up_err = await _probe_upstream()
+    return _dashboard_summary_dict(upstream_ok=up_ok, upstream_error=up_err)
+
+
+@app.get("/dashboard")
+async def dashboard_page(request: Request):
+    up_ok, up_err = await _probe_upstream()
+    initial = _dashboard_summary_dict(upstream_ok=up_ok, upstream_error=up_err)
+    boot_json = json.dumps(initial, ensure_ascii=False)
+    tpl = _jinja_env.get_template("dashboard.html")
+    html = tpl.render(upstream=UPSTREAM_BASE, boot_json=boot_json)
+    return HTMLResponse(html)
+
+
 @app.api_route("/", methods=METHODS)
 async def proxy_root(request: Request) -> Response:
     blocked = await _waf_response_or_none(request)
@@ -161,7 +213,7 @@ async def proxy_root(request: Request) -> Response:
 
 @app.api_route("/{full_path:path}", methods=METHODS)
 async def proxy_path(full_path: str, request: Request) -> Response:
-    # Reserve /__proxy/* for this app (e.g. GET /__proxy/health is registered above).
+    # Reserve /__proxy/* (나머지 경로는 구체 라우트가 먼저 매칭됨 — /dashboard, /api/dashboard/summary)
     if full_path == "__proxy" or full_path.startswith("__proxy/"):
         return Response(status_code=404)
     blocked = await _waf_response_or_none(request)

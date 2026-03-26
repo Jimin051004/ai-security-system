@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Security System — 대시보드</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3d8bfd;
+      --ok: #3fb950;
+      --bad: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Pretendard", ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid #2d3a4f;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+    header span { color: var(--muted); font-size: 0.85rem; }
+    main { padding: 1.5rem; max-width: 52rem; margin: 0 auto; }
+    .grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    }
+    .card {
+      background: var(--card);
+      border-radius: 10px;
+      padding: 1rem 1.15rem;
+      border: 1px solid #2d3a4f;
+    }
+    .card h2 {
+      margin: 0 0 0.35rem;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .card p, .card a {
+      margin: 0;
+      font-size: 0.95rem;
+      word-break: break-all;
+    }
+    .card a { color: var(--accent); text-decoration: none; }
+    .card a:hover { text-decoration: underline; }
+    .pill {
+      display: inline-block;
+      margin-top: 0.35rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .pill.ok { background: rgba(63, 185, 80, 0.15); color: var(--ok); }
+    .pill.bad { background: rgba(248, 81, 73, 0.15); color: var(--bad); }
+    .actions {
+      margin-top: 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      background: #2d3a4f;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.9rem;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .btn:hover { background: #3d4f6a; }
+    .btn.primary { background: var(--accent); color: #fff; }
+    .btn.primary:hover { filter: brightness(1.08); }
+    #updated { color: var(--muted); font-size: 0.8rem; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>AI Security System</h1>
+      <span>WAF 프록시 상태</span>
+    </div>
+    <span id="clock"></span>
+  </header>
+  <main>
+    <div class="grid">
+      <div class="card">
+        <h2>업스트림 (UPSTREAM_URL)</h2>
+        <p><a id="upstream-link" href="{{ upstream }}" target="_blank" rel="noopener">{{ upstream }}</a></p>
+      </div>
+      <div class="card">
+        <h2>업스트림 연결</h2>
+        <p id="upstream-status">…</p>
+      </div>
+      <div class="card">
+        <h2>WAF</h2>
+        <p id="waf-enabled">…</p>
+      </div>
+      <div class="card">
+        <h2>차단 최소 심각도</h2>
+        <p id="waf-severity">…</p>
+      </div>
+      <div class="card">
+        <h2>본문 프리뷰 최대</h2>
+        <p id="body-preview">…</p>
+      </div>
+    </div>
+    <div class="actions">
+      <a class="btn primary" href="/" target="_blank" rel="noopener">프록시로 업스트림 열기 (/)</a>
+      <button type="button" class="btn" id="btn-refresh">지금 새로고침</button>
+    </div>
+    <p id="updated"></p>
+  </main>
+  <script>
+    function setClock() {
+      document.getElementById("clock").textContent = new Date().toLocaleString("ko-KR");
+    }
+    function applySummary(d) {
+      const up = d.upstream_ok;
+      const el = document.getElementById("upstream-status");
+      if (up === true) {
+        el.innerHTML = '<span class="pill ok">연결됨</span>';
+      } else if (up === false) {
+        el.innerHTML = '<span class="pill bad">연결 실패</span>';
+        if (d.upstream_error) el.innerHTML += '<br><small style="color:var(--muted)">' + d.upstream_error + "</small>";
+      } else {
+        el.textContent = "확인 중…";
+      }
+      document.getElementById("waf-enabled").innerHTML =
+        d.waf_enabled
+          ? '<span class="pill ok">켜짐</span>'
+          : '<span class="pill bad">꺼짐</span>';
+      document.getElementById("waf-severity").textContent = d.waf_block_min_severity;
+      document.getElementById("body-preview").textContent = d.body_preview_max + " bytes";
+      document.getElementById("updated").textContent =
+        "마지막 갱신: " + new Date().toLocaleString("ko-KR");
+    }
+    async function loadSummary() {
+      try {
+        const r = await fetch("/api/dashboard/summary");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        applySummary(await r.json());
+      } catch (e) {
+        document.getElementById("upstream-status").innerHTML =
+          '<span class="pill bad">API 오류</span>';
+      }
+    }
+    setClock();
+    setInterval(setClock, 1000);
+    applySummary(JSON.parse({{ boot_json | tojson }}));
+    document.getElementById("btn-refresh").addEventListener("click", loadSummary);
+    setInterval(loadSummary, 15000);
+  </script>
+</body>
+</html>

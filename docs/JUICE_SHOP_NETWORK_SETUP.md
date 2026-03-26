@@ -96,8 +96,8 @@ docker compose -f docker-compose.yml down
 ### 5.1 가상환경·패키지
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python3 -m venv system
+source system/bin/activate   # Windows: system\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -124,7 +124,7 @@ UPSTREAM_URL=http://192.168.0.20:3001
 **`127.0.0.1`이 아니라 `0.0.0.0`** 으로 띄워야 다른 기기에서 접속할 수 있다.
 
 ```bash
-source .venv/bin/activate
+source system/bin/activate
 set -a && [ -f .env ] && . ./.env && set +a
 uvicorn main:app --host 0.0.0.0 --port 8080
 ```

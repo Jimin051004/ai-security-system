@@ -17,21 +17,23 @@
 
 ### 처음 한 번 (가상환경 없으면 `source` / `uvicorn` 오류 남)
 
-저장소 루트에서 **순서대로**:
+가상환경 폴더 이름은 **`system`** 을 사용한다 (원하면 다른 이름으로 바꿔도 됨).
 
 ```bash
 cd /path/to/ai-security-system
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv system
+source system/bin/activate
 pip install -r requirements.txt
 test -f .env || cp .env.example .env
 ```
 
-이후 터미널을 새로 열 때마다: `cd ... && source .venv/bin/activate` 후 `uvicorn` 실행.
+이후 터미널을 새로 열 때마다: `cd ... && source system/bin/activate` 후 `uvicorn` 실행.
 
 **venv 없이 한 줄로 실행만 하려면:**  
 `python3 -m uvicorn main:app --host 127.0.0.1 --port 8080`  
 (이때도 `pip install -r requirements.txt` 는 사용자/venv 중 한 곳에는 한 번 필요.)
+
+**웹 대시보드:** 프록시 실행 후 브라우저에서 `http://127.0.0.1:8080/dashboard` — 업스트림·WAF 상태 확인. JSON만: `GET /api/dashboard/summary`.
 
 1. **Juice Shop** (Docker): **`docker compose -f docker-compose.yml up -d`** — 호스트 포트 **`3001:3000`** (`http://127.0.0.1:3001`). `docker compose up` 만 쓰면 `compose.yaml` 등과 **병합**될 수 있다. 자세한 점검은 [docs/JUICE_SHOP_NETWORK_SETUP.md](docs/JUICE_SHOP_NETWORK_SETUP.md) §4.
 2. **프록시:** (위에서 `activate` 한 상태에서) `uvicorn main:app --host 127.0.0.1 --port 8080` → `http://127.0.0.1:8080` , 헬스: `/__proxy/health` (`.env` 의 `WAF_*`). 타깃은 **`UPSTREAM_URL`만** 바꿔 교체.
