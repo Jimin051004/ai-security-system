@@ -21,14 +21,23 @@ pytest -q
 
 ### 준비
 
+**`.venv`가 없으면** `source .venv/bin/activate` → `no such file`, `uvicorn` → `command not found` 가 난다. 먼저 만든다:
+
+```bash
+cd /path/to/ai-security-system
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
 1. 업스트림 실행 (예: Juice Shop)  
    `docker compose -f docker-compose.yml up -d`  
-2. 프록시 실행  
+2. 프록시 실행 (`activate` 된 터미널에서)  
    ```bash
-   cp .env.example .env
-   source .venv/bin/activate
    uvicorn main:app --host 127.0.0.1 --port 8080
-   ```
+   ```  
+   venv 없이: `python3 -m uvicorn main:app --host 127.0.0.1 --port 8080` (전역에 패키지 설치돼 있어야 함)
 
 ### 헬스
 
@@ -77,6 +86,8 @@ curl -s "http://127.0.0.1:8080/search?q=test%27%20OR%201%3D1--"
 
 | 증상 | 점검 |
 |------|------|
+| `source: no such file ... .venv/bin/activate` | `python3 -m venv .venv` 로 가상환경 생성 후 다시 `source` |
+| `command not found: uvicorn` | `source .venv/bin/activate` 후 `pip install -r requirements.txt` 또는 `python3 -m uvicorn ...` |
 | 502 Upstream unreachable | `UPSTREAM_URL`, 업스트림 프로세스/Docker |
 | 연결 거부 | uvicorn 포트(8080)·`--host` |
 | import 오류 | 저장소 루트에서 실행, `PYTHONPATH` 또는 `cd` 확인 |
