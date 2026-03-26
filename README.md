@@ -10,6 +10,7 @@
 | [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) | 다음 구현 작업 순서 |
 | [docs/JUICE_SHOP_NETWORK_SETUP.md](docs/JUICE_SHOP_NETWORK_SETUP.md) | Juice Shop·Docker·LAN 데모 가이드 |
 | [docs/TESTING.md](docs/TESTING.md) | 테스트 (pytest, curl) |
+| [docs/PROJECT_FULL_REFERENCE.md](docs/PROJECT_FULL_REFERENCE.md) | 전체 폴더·파일 참조 + 요구 사항 대비 점검 |
 
 목록만 보기: [docs/README.md](docs/README.md)
 

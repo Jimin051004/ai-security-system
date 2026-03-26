@@ -5,6 +5,7 @@
 | [PLAN.md](./PLAN.md) | 프로젝트 전체 계획서 (아키텍처, OWASP 모듈, 성공 기준) |
 | [IMPLEMENTATION_ROADMAP.md](./IMPLEMENTATION_ROADMAP.md) | **다음 구현 순서** (탐지 파이프라인 → 모듈 → 로그 → LLM/UI) |
 | [JUICE_SHOP_NETWORK_SETUP.md](./JUICE_SHOP_NETWORK_SETUP.md) | Juice Shop Docker, 포트, LAN 접속, `docker compose -f` 점검 |
-| [TESTING.md](./TESTING.md) | pytest·curl·**`/dashboard` GUI** 테스트 방법 |
+| [TESTING.md](./TESTING.md) | pytest·curl·**`/__waf/dashboard` GUI** 테스트 방법 |
+| [PROJECT_FULL_REFERENCE.md](./PROJECT_FULL_REFERENCE.md) | **전체 폴더·파일 설명** + 사용자 요구 대비 **미이행·한계** 점검 |
 
 저장소 루트의 [README.md](../README.md) 에서 빠른 시작을 볼 수 있다.
