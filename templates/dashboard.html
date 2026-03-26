@@ -25,6 +25,7 @@
         <div class="nav-label">이동</div>
         <a class="nav-item active" href="/__waf/dashboard" aria-current="page">대시보드</a>
         <a class="nav-item" href="/" target="_blank" rel="noopener">프록시 /</a>
+        <a class="nav-item" href="/__proxy/health" target="_blank" rel="noopener">헬스 JSON</a>
       </div>
     </aside>
     <div class="main">
@@ -49,6 +50,79 @@
           <div class="card">
             <h2>차단 심각도</h2>
             <p id="waf-severity">…</p>
+          </div>
+          <div class="card">
+            <h2>본문 미리보기</h2>
+            <p id="body-preview-max" class="mono-stat">…</p>
+          </div>
+          <div class="card">
+            <h2>최근 로그</h2>
+            <p class="traffic-mini-stat" aria-live="polite">
+              <span id="traffic-stat-total">0</span>건 중
+              <span class="stat-blocked"><span id="traffic-stat-blocked">0</span>건 차단</span>
+            </p>
+          </div>
+          <div class="card card-wide">
+            <h2>OWASP 모듈</h2>
+            <div class="traffic-feed">
+              <table class="traffic-table traffic-table-compact">
+                <thead>
+                  <tr>
+                    <th>모듈</th>
+                    <th>OWASP</th>
+                    <th>제목</th>
+                  </tr>
+                </thead>
+                <tbody id="modules-feed-body">
+                  <tr><td colspan="3" class="traffic-empty">…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p id="modules-updated" class="feed-foot"></p>
+          </div>
+          <div class="card card-wide">
+            <h2>WAF 스캔 시험</h2>
+            <p class="scan-demo-hint">
+              실제 업스트림으로 보내지 않고, 아래 입력만으로 <code>detector.scan_request</code>와 동일한 파이프라인을 돌립니다. A05 인젝션 규칙 테스트에 쓰세요.
+            </p>
+            <form class="scan-demo-form" id="scan-demo-form">
+              <div class="scan-demo-grid">
+                <label>Method
+                  <select name="method" id="scan-demo-method">
+                    <option>GET</option>
+                    <option>POST</option>
+                    <option>PUT</option>
+                  </select>
+                </label>
+                <label class="span-2">Path
+                  <input type="text" id="scan-demo-path" name="path" value="/rest/products/search?q=" autocomplete="off" />
+                </label>
+                <label class="span-3">Query string (? 제외)
+                  <input type="text" id="scan-demo-query" name="query_string" placeholder="q=test" autocomplete="off" />
+                </label>
+                <label class="span-3">Body 미리보기
+                  <textarea id="scan-demo-body" name="body_preview" rows="3" placeholder="예: username=admin' OR '1'='1"></textarea>
+                </label>
+              </div>
+              <div class="scan-demo-actions">
+                <button type="submit" class="btn-scan" id="scan-demo-submit">스캔 실행</button>
+                <span class="scan-demo-status" id="scan-demo-status"></span>
+              </div>
+            </form>
+            <div class="traffic-feed scan-demo-results">
+              <table class="traffic-table">
+                <thead>
+                  <tr>
+                    <th>rule_id</th>
+                    <th>심각도</th>
+                    <th>증거</th>
+                  </tr>
+                </thead>
+                <tbody id="scan-demo-body-out">
+                  <tr><td colspan="3" class="traffic-empty">실행 후 결과가 여기에 표시됩니다.</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
           <div class="card card-wide">
             <h2>접속자 (고유 IP)</h2>

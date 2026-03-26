@@ -346,170 +346,44 @@ body::before {
   color: #a5b4fc;
   font-weight: 600;
 }
-/* ── A05 Injection 테스트 패널 ── */
-.a05-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  margin-bottom: 1rem;
-}
-.a05-row {
-  display: flex;
-  gap: 0.5rem;
-}
-.a05-select {
-  padding: 0.5rem 0.6rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(129, 140, 248, 0.3);
-  background: rgba(15, 20, 40, 0.8);
-  color: var(--text);
+.mono-stat {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.82rem;
-  font-family: inherit;
-  cursor: pointer;
-  min-width: 6rem;
 }
-.a05-input {
-  flex: 1;
-  padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(129, 140, 248, 0.3);
-  background: rgba(15, 20, 40, 0.8);
+.traffic-mini-stat {
+  font-size: 0.9rem;
   color: var(--text);
-  font-size: 0.82rem;
-  font-family: ui-monospace, "SF Mono", Consolas, monospace;
-  outline: none;
-  transition: border-color 0.15s;
 }
-.a05-input:focus {
-  border-color: rgba(129, 140, 248, 0.65);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
-}
-.a05-path { font-family: inherit; }
-.a05-textarea {
-  padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(129, 140, 248, 0.3);
-  background: rgba(15, 20, 40, 0.8);
-  color: var(--text);
-  font-size: 0.8rem;
-  font-family: ui-monospace, "SF Mono", Consolas, monospace;
-  resize: vertical;
-  outline: none;
-  transition: border-color 0.15s;
-}
-.a05-textarea:focus {
-  border-color: rgba(129, 140, 248, 0.65);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
-}
-.a05-presets {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-}
-.a05-preset-label {
-  font-size: 0.7rem;
-  color: var(--text-dim);
-  letter-spacing: 0.05em;
-}
-.a05-preset-btn {
-  padding: 0.3rem 0.65rem;
-  border-radius: 999px;
-  border: 1px solid rgba(129, 140, 248, 0.3);
-  background: rgba(30, 38, 62, 0.6);
-  color: var(--text-dim);
-  font-size: 0.72rem;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.a05-preset-btn:hover {
-  background: rgba(99, 102, 241, 0.2);
-  color: var(--text);
-  border-color: rgba(129, 140, 248, 0.55);
-}
-.a05-run-btn {
-  align-self: flex-start;
-  padding: 0.55rem 1.4rem;
-  font-size: 0.85rem;
-}
-/* 결과 영역 */
-.a05-result {
-  margin-top: 0.75rem;
-}
-.a05-verdict {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.65rem 1rem;
-  border-radius: var(--radius-sm);
-  margin-bottom: 0.6rem;
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-.verdict-blocked {
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.3);
+.stat-blocked {
   color: #fca5a5;
 }
-.verdict-clean {
-  background: rgba(52, 211, 153, 0.1);
-  border: 1px solid rgba(52, 211, 153, 0.25);
-  color: var(--ok);
+.traffic-table-compact td,
+.traffic-table-compact th {
+  font-size: 0.78rem;
 }
-.a05-verdict-icon { font-size: 1.1rem; }
-.a05-findings-feed {
-  max-height: 18rem;
-}
-/* 심각도 배지 */
-.sev-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-.sev-critical {
-  background: rgba(239, 68, 68, 0.18);
-  color: #fca5a5;
-  border: 1px solid rgba(239, 68, 68, 0.35);
-}
-.sev-high {
-  background: rgba(251, 146, 60, 0.15);
-  color: #fdba74;
-  border: 1px solid rgba(251, 146, 60, 0.3);
-}
-.sev-medium {
-  background: rgba(250, 204, 21, 0.12);
-  color: #fde047;
-  border: 1px solid rgba(250, 204, 21, 0.25);
-}
-.sev-low {
-  background: rgba(52, 211, 153, 0.1);
-  color: var(--ok);
-  border: 1px solid rgba(52, 211, 153, 0.2);
-}
-.rule-id {
-  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+.detections-hint {
+  margin: 0 0 0.75rem;
   font-size: 0.72rem;
-  color: #a5b4fc;
-  white-space: nowrap;
+  line-height: 1.45;
+  color: var(--text-dim);
+  max-width: 52rem;
 }
-.evidence-cell {
+.traffic-feed-scroll {
+  overflow-x: auto;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+.traffic-table-detections th,
+.traffic-table-detections td {
   font-size: 0.72rem;
-  color: var(--text-dim);
-  word-break: break-all;
+  vertical-align: top;
 }
-.a05-loading, .a05-error {
-  font-size: 0.82rem;
+.traffic-table-detections .col-detail {
+  max-width: 14rem;
+  word-break: break-word;
   color: var(--text-dim);
-  padding: 0.5rem 0;
+  line-height: 1.35;
 }
-.a05-error { color: var(--bad); }
-
 @media (max-width: 768px) {
   .app { flex-direction: column; }
   .sidebar {

@@ -17,6 +17,8 @@ def test_dashboard_canonical_200() -> None:
     assert "/__waf/static/js/dashboard.js" in r.text
     assert "접속자" in r.text
     assert "프록시 로그" in r.text
+    assert "modules-feed-body" in r.text
+    assert "scan-demo-form" in r.text
     assert "no-store" in r.headers.get("cache-control", "")
 
 
@@ -67,3 +69,35 @@ def test_api_dashboard_summary_legacy_path() -> None:
     r = client.get("/api/dashboard/summary")
     assert r.status_code == 200
     assert "upstream" in r.json()
+
+
+def test_waf_api_modules_lists_a05() -> None:
+    client = TestClient(app)
+    r = client.get("/__waf/api/modules")
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get("status") == "ok"
+    ids = [m["module_id"] for m in data.get("modules", [])]
+    assert "a05" in ids
+    a05 = next(m for m in data["modules"] if m["module_id"] == "a05")
+    assert a05.get("title") == "Injection"
+
+
+def test_waf_api_scan_demo_detects_sqli_in_query() -> None:
+    client = TestClient(app)
+    r = client.post(
+        "/__waf/api/scan-demo",
+        json={
+            "method": "GET",
+            "path": "/rest/products/search",
+            "query_string": "q=test' OR '1'='1",
+            "headers": {},
+            "body_preview": "",
+        },
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get("status") == "ok"
+    assert data.get("findings_count", 0) >= 1
+    rule_ids = {f["rule_id"] for f in data.get("findings", [])}
+    assert any(r.startswith("A05-SQL") for r in rule_ids)

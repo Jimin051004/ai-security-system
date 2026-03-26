@@ -25,6 +25,10 @@ function applySummary(d) {
   }
   const sev = document.getElementById("waf-severity");
   if (sev) sev.textContent = d.waf_block_min_severity;
+  const bpm = document.getElementById("body-preview-max");
+  if (bpm && d.body_preview_max != null) {
+    bpm.textContent = String(d.body_preview_max) + " bytes";
+  }
   const upd = document.getElementById("updated");
   if (upd) upd.textContent = "요약 갱신: " + new Date().toLocaleString("ko-KR");
 }
@@ -45,14 +49,24 @@ function trafficResultHtml(e) {
 }
 function renderTraffic(events) {
   const body = document.getElementById("traffic-feed-body");
+  const statTotal = document.getElementById("traffic-stat-total");
+  const statBlocked = document.getElementById("traffic-stat-blocked");
   if (!body) return;
   if (!events || !events.length) {
+    if (statTotal) statTotal.textContent = "0";
+    if (statBlocked) statBlocked.textContent = "0";
     body.innerHTML =
       '<tr><td colspan="6" class="traffic-empty">기록 없음 · <code>' +
       window.location.origin +
       "/</code></td></tr>";
     return;
   }
+  let blocked = 0;
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].blocked) blocked += 1;
+  }
+  if (statTotal) statTotal.textContent = String(events.length);
+  if (statBlocked) statBlocked.textContent = String(blocked);
   body.innerHTML = events
     .map(
       (e) =>
@@ -132,6 +146,59 @@ async function loadClients() {
   } catch (err) {
     if (foot) foot.textContent = "접속자 오류";
   }
+}
+function renderModules(data) {
+  const body = document.getElementById("modules-feed-body");
+  if (!body) return;
+  const list = data.modules || [];
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="3" class="traffic-empty">없음</td></tr>';
+    return;
+  }
+  body.innerHTML = list
+    .map(
+      (m) =>
+        "<tr><td class=\"mono-stat\">" +
+        escapeHtml(m.module_id) +
+        "</td><td>" +
+        escapeHtml(m.owasp_id) +
+        "</td><td>" +
+        escapeHtml(m.title) +
+        "</td></tr>"
+    )
+    .join("");
+}
+async function loadModules() {
+  const foot = document.getElementById("modules-updated");
+  try {
+    const r = await fetch("/__waf/api/modules");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    renderModules(await r.json());
+    if (foot) foot.textContent = "모듈: " + new Date().toLocaleString("ko-KR");
+  } catch (err) {
+    if (foot) foot.textContent = "모듈 API 오류";
+  }
+}
+function renderScanDemoFindings(findings) {
+  const body = document.getElementById("scan-demo-body-out");
+  if (!body) return;
+  if (!findings || !findings.length) {
+    body.innerHTML =
+      '<tr><td colspan="3" class="traffic-empty">탐지 없음 (또는 차단 기준 미만)</td></tr>';
+    return;
+  }
+  body.innerHTML = findings
+    .map(
+      (f) =>
+        "<tr><td class=\"mono-stat\">" +
+        escapeHtml(f.rule_id) +
+        "</td><td>" +
+        escapeHtml(f.severity) +
+        '</td><td class="col-path">' +
+        escapeHtml(f.evidence) +
+        "</td></tr>"
+    )
+    .join("");
 }
 async function loadSummary() {
   try {
@@ -249,6 +316,42 @@ if (btn) {
     loadSummary();
     loadTraffic();
     loadClients();
+    loadModules();
+  });
+}
+const scanForm = document.getElementById("scan-demo-form");
+if (scanForm) {
+  scanForm.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const statusEl = document.getElementById("scan-demo-status");
+    const methodEl = document.getElementById("scan-demo-method");
+    const pathEl = document.getElementById("scan-demo-path");
+    const queryEl = document.getElementById("scan-demo-query");
+    const bodyEl = document.getElementById("scan-demo-body");
+    if (statusEl) statusEl.textContent = "실행 중…";
+    try {
+      const r = await fetch("/__waf/api/scan-demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          method: methodEl ? methodEl.value : "GET",
+          path: pathEl ? pathEl.value : "/",
+          query_string: queryEl ? queryEl.value : "",
+          headers: {},
+          body_preview: bodyEl ? bodyEl.value : "",
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail || "HTTP " + r.status);
+      renderScanDemoFindings(data.findings || []);
+      if (statusEl) {
+        const n = data.findings_count != null ? data.findings_count : (data.findings || []).length;
+        statusEl.textContent = "완료 · 탐지 " + n + "건";
+      }
+    } catch (err) {
+      renderScanDemoFindings([]);
+      if (statusEl) statusEl.textContent = "오류";
+    }
   });
 }
 setInterval(loadSummary, 15000);
@@ -256,3 +359,4 @@ loadTraffic();
 setInterval(loadTraffic, 2000);
 loadClients();
 setInterval(loadClients, 2000);
+loadModules();

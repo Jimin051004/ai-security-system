@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import httpx
 import jinja2
 from fastapi import FastAPI, Request, Response
+from pydantic import BaseModel, Field
 from starlette.datastructures import MutableHeaders
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,7 +22,8 @@ from detector import (
     parse_severity,
     scan_request,
 )
-from owasp.types import Severity
+from owasp import MODULES
+from owasp.types import RequestContext, Severity
 from request_snapshot import DEFAULT_BODY_PREVIEW_MAX, request_to_context
 
 import traffic_log
@@ -362,6 +364,56 @@ async def waf_api_traffic() -> dict[str, Any]:
 @app.get("/__waf/api/clients")
 async def waf_api_clients() -> dict[str, Any]:
     return await traffic_log.clients_snapshot()
+
+
+@app.get("/__waf/api/modules")
+async def waf_api_modules() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "modules": [
+            {"module_id": m.module_id, "owasp_id": m.owasp_id, "title": m.title}
+            for m in MODULES
+        ],
+    }
+
+
+class _ScanDemoBody(BaseModel):
+    """대시보드에서 WAF 규칙을 시험할 때 사용 (실제 프록시 요청과 동일한 RequestContext)."""
+
+    method: str = "GET"
+    path: str = "/"
+    query_string: str = ""
+    headers: dict[str, str] = Field(default_factory=dict)
+    body_preview: str = ""
+
+
+@app.post("/__waf/api/scan-demo")
+async def waf_api_scan_demo(body: _ScanDemoBody) -> dict[str, Any]:
+    max_b = _body_preview_max()
+    preview = (body.body_preview or "")[:max_b]
+    headers = {k.lower(): v for k, v in (body.headers or {}).items()}
+    ctx = RequestContext(
+        method=(body.method or "GET").upper(),
+        path=body.path or "/",
+        query_string=body.query_string or "",
+        headers=headers,
+        body_preview=preview,
+    )
+    results = await scan_request(ctx)
+    findings = all_findings(results)
+    return {
+        "status": "ok",
+        "findings_count": len(findings),
+        "findings": [_finding_to_json(f) for f in findings],
+        "by_module": [
+            {
+                "module_id": r.module_id,
+                "owasp_id": r.owasp_id,
+                "findings": [_finding_to_json(f) for f in r.findings],
+            }
+            for r in results
+        ],
+    }
 
 
 # `/__waf/{waf_tail:path}` 보다 먼저 등록해야 정적 파일이 404로 가지 않음
