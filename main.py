@@ -290,7 +290,7 @@ def _finding_to_json(f) -> dict[str, str]:
 
 
 async def _waf_response_or_none(request: Request) -> Response | None:
-    """Run OWASP modules; return 403 JSON if policy says block, else None (allow)."""
+    """Run OWASP modules; return 403 HTML block page if policy says block, else None (allow)."""
     if not _waf_enabled():
         return None
     ctx = await request_to_context(request, body_preview_max=_body_preview_max())
@@ -300,14 +300,11 @@ async def _waf_response_or_none(request: Request) -> Response | None:
     blocking = findings_at_or_above_severity(findings, min_sev)
     if not blocking:
         return None
-    payload = {
-        "blocked": True,
-        "policy": "min_severity",
-        "min_severity": min_sev.value,
-        "upstream": UPSTREAM_BASE,
-        "findings": [_finding_to_json(f) for f in blocking],
-    }
-    return JSONResponse(status_code=403, content=payload)
+    from owasp.a05 import make_block_html
+    return HTMLResponse(
+        content=make_block_html(tuple(blocking)),
+        status_code=403,
+    )
 
 
 @app.get("/__proxy/health")

@@ -360,6 +360,182 @@ def _deduplicate(findings: Sequence[Finding]) -> tuple[Finding, ...]:
             result.append(f)
     return tuple(result)
 
+
+# ---------------------------------------------------------------------------
+# 차단 HTML 페이지 — 인젝션 유형별 한국어 메시지 + 탐지 근거 표시
+# ---------------------------------------------------------------------------
+
+_RULE_TYPE_MAP: dict[str, str] = {
+    "A05-SQL":   "SQL Injection",
+    "A05-CMD":   "OS Command Injection",
+    "A05-XSS":   "XSS (크로스 사이트 스크립팅)",
+    "A05-LDAP":  "LDAP Injection",
+    "A05-XPATH": "XPath Injection",
+    "A05-SSTI":  "SSTI / EL Injection",
+    "A05-CRLF":  "CRLF Injection",
+}
+
+_SEV_RANK: dict[Severity, int] = {
+    Severity.CRITICAL: 5,
+    Severity.HIGH: 4,
+    Severity.MEDIUM: 3,
+    Severity.LOW: 2,
+    Severity.NONE: 1,
+}
+
+_TITLE_MAP: dict[str, str] = {
+    "SQL Injection":               "SQL Injection 공격이 차단되었습니다",
+    "OS Command Injection":        "OS Command Injection 공격이 차단되었습니다",
+    "XSS (크로스 사이트 스크립팅)": "XSS 공격이 차단되었습니다",
+    "LDAP Injection":              "LDAP Injection 공격이 차단되었습니다",
+    "XPath Injection":             "XPath Injection 공격이 차단되었습니다",
+    "SSTI / EL Injection":         "SSTI 공격이 차단되었습니다",
+    "CRLF Injection":              "CRLF Injection 공격이 차단되었습니다",
+}
+
+_SEV_CSS: dict[Severity, tuple[str, str]] = {
+    Severity.CRITICAL: ("CRITICAL", "sev-critical"),
+    Severity.HIGH:     ("HIGH",     "sev-high"),
+    Severity.MEDIUM:   ("MEDIUM",   "sev-medium"),
+    Severity.LOW:      ("LOW",      "sev-low"),
+    Severity.NONE:     ("NONE",     "sev-low"),
+}
+
+_BLOCK_PAGE_CSS = """
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    padding:2rem;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    color:#f0f4fc;
+    background:#060912;
+    background:
+      radial-gradient(ellipse 110% 85% at 5% -15%,rgba(59,130,246,.28),transparent 52%),
+      radial-gradient(ellipse 90% 70% at 95% 5%,rgba(248,113,113,.22),transparent 48%),
+      linear-gradient(168deg,#0d1326 0%,#080c18 38%,#060912 100%);
+  }
+  .card{
+    background:linear-gradient(155deg,rgba(30,38,62,.88),rgba(14,18,32,.96));
+    border:1px solid rgba(248,113,113,.35);border-radius:16px;
+    padding:2rem 2.5rem;max-width:620px;width:100%;
+    box-shadow:0 8px 40px rgba(248,113,113,.1),0 4px 24px rgba(0,0,0,.45);
+  }
+  .icon{font-size:2.75rem;margin-bottom:.6rem}
+  h1{font-size:1.45rem;font-weight:800;color:#fca5a5;
+     margin-bottom:.3rem;letter-spacing:-.03em}
+  .subtitle{font-size:.875rem;color:#8b9cc4;margin-bottom:1.25rem;line-height:1.5}
+  .type-badge{
+    display:inline-flex;align-items:center;gap:.4rem;
+    padding:.38rem .9rem;
+    background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);
+    border-radius:999px;font-size:.82rem;font-weight:700;color:#fca5a5;
+    margin-bottom:1.25rem;
+  }
+  .findings{
+    background:rgba(0,0,0,.22);border:1px solid rgba(129,140,248,.15);
+    border-radius:10px;overflow:hidden;margin-bottom:1.5rem;
+  }
+  .finding-row{
+    display:flex;align-items:flex-start;gap:.75rem;
+    padding:.6rem .9rem;border-top:1px solid rgba(255,255,255,.04);
+    font-size:.78rem;
+  }
+  .finding-row:first-child{border-top:none}
+  .sev{
+    flex-shrink:0;padding:.18rem .52rem;border-radius:999px;
+    font-size:.66rem;font-weight:700;letter-spacing:.04em;
+  }
+  .sev-critical{background:rgba(239,68,68,.18);color:#fca5a5;border:1px solid rgba(239,68,68,.32)}
+  .sev-high{background:rgba(251,146,60,.15);color:#fdba74;border:1px solid rgba(251,146,60,.28)}
+  .sev-medium{background:rgba(250,204,21,.12);color:#fde047;border:1px solid rgba(250,204,21,.22)}
+  .sev-low{background:rgba(52,211,153,.1);color:#34d399;border:1px solid rgba(52,211,153,.2)}
+  .rule-id{color:#a5b4fc;font-family:ui-monospace,"SF Mono",Consolas,monospace;
+           font-size:.71rem;margin-bottom:.15rem}
+  .evidence{color:#8b9cc4;word-break:break-all;line-height:1.4}
+  .footer{font-size:.73rem;color:#8b9cc4;line-height:1.6}
+  .back-btn{
+    display:inline-flex;align-items:center;gap:.45rem;margin-top:1.1rem;
+    padding:.55rem 1.2rem;
+    background:linear-gradient(135deg,#3b82f6,#6366f1 50%,#a855f7);
+    border:none;border-radius:10px;color:#fff;font-size:.85rem;font-weight:600;
+    font-family:inherit;cursor:pointer;text-decoration:none;
+    box-shadow:0 4px 20px rgba(99,102,241,.3);
+    transition:filter .15s,transform .15s;
+  }
+  .back-btn:hover{filter:brightness(1.1);transform:translateY(-1px)}
+"""
+
+
+def _html_esc(s: str) -> str:
+    return (
+        s.replace("&", "&amp;")
+         .replace("<", "&lt;")
+         .replace(">", "&gt;")
+         .replace('"', "&quot;")
+    )
+
+
+def _infer_injection_type(findings: tuple[Finding, ...]) -> str:
+    sorted_f = sorted(findings, key=lambda f: _SEV_RANK.get(f.severity, 0), reverse=True)
+    for f in sorted_f:
+        for prefix, name in _RULE_TYPE_MAP.items():
+            if f.rule_id.startswith(prefix):
+                return name
+    return "Injection"
+
+
+def make_block_html(findings: tuple[Finding, ...]) -> str:
+    """인젝션 탐지 시 브라우저에 반환할 403 차단 HTML 페이지를 생성한다."""
+    injection_type = _infer_injection_type(findings)
+    title = _TITLE_MAP.get(injection_type, "Injection 공격이 차단되었습니다")
+
+    sorted_findings = sorted(
+        findings, key=lambda f: _SEV_RANK.get(f.severity, 0), reverse=True
+    )
+    rows: list[str] = []
+    for f in sorted_findings:
+        label, css = _SEV_CSS.get(f.severity, ("?", "sev-low"))
+        ev = f.evidence[:130] + "…" if len(f.evidence) > 130 else f.evidence
+        rows.append(
+            f'<div class="finding-row">'
+            f'<span class="sev {css}">{label}</span>'
+            f'<div>'
+            f'<div class="rule-id">{_html_esc(f.rule_id)}</div>'
+            f'<div class="evidence">{_html_esc(ev)}</div>'
+            f'</div>'
+            f'</div>'
+        )
+    findings_html = "\n".join(rows)
+
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WAF — 요청 차단됨</title>
+  <style>{_BLOCK_PAGE_CSS}</style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🚫</div>
+    <h1>{_html_esc(title)}</h1>
+    <p class="subtitle">
+      WAF(Web Application Firewall)가 악성 인젝션 패턴을 탐지하여<br>
+      이 요청을 업스트림 서버로 전달하지 않고 차단했습니다.
+    </p>
+    <div class="type-badge">🔍 {_html_esc(injection_type)} 탐지됨</div>
+    <div class="findings">
+{findings_html}
+    </div>
+    <p class="footer">
+      OWASP A05:2025 — Injection 정책에 의해 차단되었습니다.<br>
+      정상적인 요청이라면 관리자에게 문의하세요.
+    </p>
+    <a class="back-btn" href="javascript:history.back()">← 이전 페이지로</a>
+  </div>
+</body>
+</html>"""
+
+
 # ---------------------------------------------------------------------------
 # 공개 인터페이스 — detector.py 가 호출하는 진입점
 # ---------------------------------------------------------------------------
