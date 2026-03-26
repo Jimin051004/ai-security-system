@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import httpx
 import jinja2
 from fastapi import FastAPI, Request, Response
+from starlette.datastructures import MutableHeaders
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -234,7 +235,8 @@ def _rewrite_response_body_for_public_origin(
 def _build_proxied_upstream_response(request: Request, upstream: httpx.Response) -> Response:
     ct = upstream.headers.get("content-type", "")
     content = _rewrite_response_body_for_public_origin(upstream.content, ct, request)
-    out: list[tuple[str, str]] = []
+    # Starlette Response.headers 는 Mapping 만 허용 — list/tuple 이면 500 (AttributeError)
+    out = MutableHeaders()
     for key, value in upstream.headers.multi_items():
         lk = key.lower()
         if lk in HOP_BY_HOP:
@@ -243,7 +245,7 @@ def _build_proxied_upstream_response(request: Request, upstream: httpx.Response)
             continue
         if lk == "location":
             value = _rewrite_location_header(value, request)
-        out.append((key, value))
+        out.append(key, value)
     return Response(
         content=content,
         status_code=upstream.status_code,

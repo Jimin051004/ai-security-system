@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import httpx
 from starlette.requests import Request
 
-from main import _rewrite_location_header, _rewrite_response_body_for_public_origin
+from main import (
+    _build_proxied_upstream_response,
+    _rewrite_location_header,
+    _rewrite_response_body_for_public_origin,
+)
 
 
 def _req(host: str, port: int) -> Request:
@@ -38,3 +43,16 @@ def test_rewrite_html_embedded_upstream_origin() -> None:
     out = _rewrite_response_body_for_public_origin(raw, "text/html; charset=utf-8", req)
     assert b"192.168.0.39:8080" in out
     assert b"127.0.0.1:3001" not in out
+
+
+def test_build_proxied_response_does_not_use_list_headers() -> None:
+    """Starlette Response 는 list 헤더 시 500 — MutableHeaders 로 감싼다."""
+    req = _req("192.168.0.39", 8080)
+    upstream = httpx.Response(
+        200,
+        headers=[("Content-Type", "text/plain; charset=utf-8"), ("Set-Cookie", "a=1")],
+        content=b"ok",
+    )
+    resp = _build_proxied_upstream_response(req, upstream)
+    assert resp.status_code == 200
+    assert resp.body == b"ok"
