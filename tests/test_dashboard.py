@@ -11,11 +11,12 @@ def test_dashboard_canonical_200() -> None:
     client = TestClient(app)
     r = client.get("/__waf/dashboard")
     assert r.status_code == 200
-    assert "AI Security System" in r.text
+    assert "WAF 대시보드" in r.text
     assert "업스트림" in r.text
     assert "/__waf/static/css/dashboard.css" in r.text
     assert "/__waf/static/js/dashboard.js" in r.text
-    assert "프록시 접속자" in r.text
+    assert "접속자" in r.text
+    assert "프록시 로그" in r.text
     assert "no-store" in r.headers.get("cache-control", "")
 
 

@@ -251,8 +251,6 @@ async def dashboard_page(request: Request) -> HTMLResponse:
     html = tpl.render(
         upstream=UPSTREAM_BASE,
         boot=initial,
-        access=initial.get("access"),
-        request_host=request.headers.get("host", "127.0.0.1:8080"),
     )
     return HTMLResponse(
         html,
