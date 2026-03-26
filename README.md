@@ -4,7 +4,7 @@
 
 ## 업스트림 웹 앱 (Juice Shop) + 프록시
 
-1. **Juice Shop** (Docker): `cp .env.example .env` 후 `docker compose up -d` — 기본 호스트 포트는 **3001** (`http://127.0.0.1:3001`). 충돌 시 `.env`의 `JUICE_SHOP_HOST_PORT`·`UPSTREAM_URL`을 같이 바꾼다.
+1. **Juice Shop** (Docker): `cp .env.example .env` 후 `docker compose up -d` — 호스트 포트는 `docker-compose.yml`의 **`3001:3000`** (`http://127.0.0.1:3001`). 3001도 충돌하면 compose에서 `"3002:3000"` 등으로 바꾸고 `UPSTREAM_URL` 포트를 맞춘다.
 2. **가상환경·의존성:** `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
 3. **프록시(로컬만):** `cp .env.example .env` 후 `uvicorn main:app --host 127.0.0.1 --port 8080` → `http://127.0.0.1:8080` , 헬스: `/__proxy/health`
 

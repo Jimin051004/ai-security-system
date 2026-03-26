@@ -20,7 +20,7 @@ cd ai-security-system
 cp .env.example .env
 ```
 
-`docker compose`는 프로젝트 루트의 `.env`에서 `JUICE_SHOP_HOST_PORT`를 읽어 호스트 포트를 정한다. 기본값은 **3001**이다(많은 환경에서 3000이 이미 사용 중이기 때문).
+Juice Shop이 호스트의 **어느 포트**에 붙는지는 `docker-compose.yml`의 `ports: - "3001:3000"` 한 줄로만 정해진다(`.env`와 무관). 기본 호스트 포트는 **3001**이다.
 
 ---
 
@@ -65,13 +65,13 @@ docker compose pull
 docker compose up -d
 ```
 
-이 저장소의 `docker-compose.yml`은 컨테이너 **3000**을 호스트의 **`${JUICE_SHOP_HOST_PORT:-3001}`**(기본 **3001**)에 붙인다.  
+이 저장소의 `docker-compose.yml`은 **`3001:3000`**(호스트 3001 → 컨테이너 내부 3000)으로 붙인다.  
 같은 네트워크의 다른 사람은 다음으로 **직접** Juice Shop에 접속할 수 있다.
 
 - **직접 접속 URL:** `http://192.168.0.10:3001`  
   (WAF 프록시를 거치지 않음 — 순수 타깃 앱만 테스트할 때)
 
-`.env`에서 `JUICE_SHOP_HOST_PORT=3002`처럼 바꾼 뒤 `docker compose up -d`를 다시 실행하면 그 포트로 열린다. **`UPSTREAM_URL`의 포트와 동일하게** 맞출 것.
+호스트 포트를 바꾸려면 `docker-compose.yml`에서 `"3002:3000"`처럼 **왼쪽 숫자만** 수정한 뒤 `docker compose up -d`를 다시 실행하고, **`.env`의 `UPSTREAM_URL` 포트도 동일하게** 맞춘다.
 
 컨테이너 중지:
 
@@ -102,7 +102,6 @@ cp .env.example .env   # 이미 했다면 생략
 `.env` 내용 예시(프록시와 Juice Shop이 **같은 PC**):
 
 ```env
-JUICE_SHOP_HOST_PORT=3001
 UPSTREAM_URL=http://127.0.0.1:3001
 ```
 
@@ -136,7 +135,7 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 
 ## 6. 방화벽
 
-다른 사람이 끊기면 호스트 OS 방화벽에서 **TCP `JUICE_SHOP_HOST_PORT`(기본 3001)**(직접 Juice Shop), **TCP 8080**(프록시) 허용이 필요할 수 있다.
+다른 사람이 끊기면 호스트 OS 방화벽에서 **TCP 3001**(직접 Juice Shop, compose 기준), **TCP 8080**(프록시) 허용이 필요할 수 있다.
 
 - **macOS:** 시스템 설정 → 네트워크 → 방화벽 옵션에서 `Python` 또는 터미널/도커 허용
 - **Windows:** 고급 보안이 포함된 Windows Defender 방화벽 → 인바운드 규칙에서 포트 허용
@@ -155,7 +154,7 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 
 ## 8. 자주 있는 이슈
 
-- **호스트 포트 충돌 (`address already in use`):** `.env`에서 `JUICE_SHOP_HOST_PORT`를 다른 값(예: 3002)으로 바꾸고 `UPSTREAM_URL` 포트도 동일하게 맞춘 뒤 `docker compose up -d`를 다시 실행한다. macOS에서 3000을 누가 쓰는지 보려면: `lsof -iTCP:3000 -sTCP:LISTEN`
+- **호스트 포트 충돌 (`address already in use`):** `docker-compose.yml`의 `"3001:3000"`에서 호스트 쪽(왼쪽)을 예: `3002`로 바꾸고, `.env`의 `UPSTREAM_URL` 포트도 맞춘 뒤 `docker compose up -d`를 다시 실행한다. 예전에 Docker가 3000을 쓰려다 실패한 경우, 프로젝트 루트 `.env`에 **`JUICE_SHOP_HOST_PORT=3000` 같은 줄이 있으면 삭제**한다(현재 compose는 이 변수를 쓰지 않지만, 혼동을 막기 위함).
 - **리다이렉트가 `localhost`·다른 포트로 감:** Juice Shop이 절대 URL을 줄 때 발생할 수 있다. 주소창을 다시 `http://<LAN-IP>:8080`(또는 Juice Shop 직접 포트)으로 맞춘다.
 - **`docker compose` 프로젝트 이름 오류:** 이 저장소 `docker-compose.yml` 상단에 `name: ai-security-system` 이 있다. 폴더 경로만 바꿔서 실행하면 된다.
 - **상대방이 접속 불가:** 같은 Wi‑Fi인지, IP가 맞는지, 방화벽·VPN(게스트 격리) 여부를 확인한다.

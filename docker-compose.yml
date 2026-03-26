@@ -1,8 +1,9 @@
 # OWASP Juice Shop — 웹 취약점 데모 앱 (WAF 업스트림으로 사용)
 # 시작: docker compose up -d
-# 호스트 포트 기본 3001 (3000이 이미 쓰이는 경우가 많음). 루트 .env 에 JUICE_SHOP_HOST_PORT=원하는포트
-# LAN: http://<이_PC_LAN_IP>:<JUICE_SHOP_HOST_PORT>
-# 로컬만: ports 를 "127.0.0.1:${JUICE_SHOP_HOST_PORT:-3001}:3000" 처럼 바인딩 제한 가능
+#
+# "3001:3000" = 호스트(맥/윈) 3001 → 컨테이너 내부 3000. 오른쪽 3000은 이미지 고정값, 바꾸지 말 것.
+# .env 의 JUICE_SHOP_HOST_PORT 는 이 파일을 건드리지 않음(예전에 .env=3000 이면 호스트 3000 충돌 났음).
+# 다른 호스트 포트가 필요하면 아래 한 줄만 예: "3002:3000" 로 수정하고 UPSTREAM_URL 도 맞출 것.
 
 name: ai-security-system
 
@@ -10,5 +11,5 @@ services:
   juice-shop:
     image: bkimminich/juice-shop:latest
     ports:
-      - "${JUICE_SHOP_HOST_PORT:-3001}:3000"
+      - "3001:3000"
     restart: unless-stopped
