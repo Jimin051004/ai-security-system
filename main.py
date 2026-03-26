@@ -11,6 +11,7 @@ import httpx
 import jinja2
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from detector import (
     all_findings,
@@ -251,6 +252,7 @@ async def dashboard_page(request: Request) -> HTMLResponse:
         upstream=UPSTREAM_BASE,
         boot=initial,
         access=initial.get("access"),
+        request_host=request.headers.get("host", "127.0.0.1:8080"),
     )
     return HTMLResponse(
         html,
@@ -276,6 +278,15 @@ async def waf_api_summary_canonical(request: Request) -> dict[str, Any]:
 async def waf_api_traffic() -> dict[str, Any]:
     events = await traffic_log.snapshot_dicts()
     return {"status": "ok", "events": events}
+
+
+# `/__waf/{waf_tail:path}` 보다 먼저 등록해야 정적 파일이 404로 가지 않음
+_WAF_STATIC_DIR = _BASE / "static" / "waf"
+app.mount(
+    "/__waf/static",
+    StaticFiles(directory=str(_WAF_STATIC_DIR)),
+    name="waf_static",
+)
 
 
 def _waf_unknown_path_response() -> JSONResponse:

@@ -39,6 +39,7 @@ cp .env.example .env
    ```bash
    uvicorn main:app --host 127.0.0.1 --port 8080
    ```  
+   같은 네트워크 팀원 접속 허용: `--host 0.0.0.0` · 맥 방화벽에서 포트 허용.  
    venv 없이: `python3 -m uvicorn main:app --host 127.0.0.1 --port 8080` (전역에 패키지 설치돼 있어야 함)
 
 ### 헬스

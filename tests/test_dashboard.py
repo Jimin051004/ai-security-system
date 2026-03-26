@@ -13,7 +13,20 @@ def test_dashboard_canonical_200() -> None:
     assert r.status_code == 200
     assert "AI Security System" in r.text
     assert "업스트림" in r.text
+    assert "/__waf/static/css/dashboard.css" in r.text
+    assert "/__waf/static/js/dashboard.js" in r.text
     assert "no-store" in r.headers.get("cache-control", "")
+
+
+def test_dashboard_static_css_js_200() -> None:
+    client = TestClient(app)
+    css = client.get("/__waf/static/css/dashboard.css")
+    assert css.status_code == 200
+    assert "text/css" in css.headers.get("content-type", "")
+    assert b":root" in css.content
+    js = client.get("/__waf/static/js/dashboard.js")
+    assert js.status_code == 200
+    assert b"loadSummary" in js.content
 
 
 def test_waf_unknown_path_json_404() -> None:

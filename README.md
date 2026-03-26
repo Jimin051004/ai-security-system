@@ -30,13 +30,16 @@ test -f .env || cp .env.example .env
 이후 터미널을 새로 열 때마다: `cd ... && source system/bin/activate` 후 `uvicorn` 실행.
 
 **venv 없이 한 줄로 실행만 하려면:**  
-`python3 -m uvicorn main:app --host 127.0.0.1 --port 8080`  
+로컬만: `python3 -m uvicorn main:app --host 127.0.0.1 --port 8080`  
+같은 Wi‑Fi 팀원까지: `--host 0.0.0.0` (맥 방화벽에서 포트 허용).  
 (이때도 `pip install -r requirements.txt` 는 사용자/venv 중 한 곳에는 한 번 필요.)
 
 **웹 대시보드(프록시 전용):** `uvicorn` 포트(예: 8080)로 접속 — **`http://127.0.0.1:8080/__waf/dashboard`**. (`:3001` 등 업스트림 포트로 열면 Juice Shop만 보임.) JSON: `GET /__waf/api/summary` (기존 `/api/dashboard/summary` 도 동작).
 
 1. **Juice Shop** (Docker): **`docker compose -f docker-compose.yml up -d`** — 호스트 포트 **`3001:3000`** (`http://127.0.0.1:3001`). `docker compose up` 만 쓰면 `compose.yaml` 등과 **병합**될 수 있다. 자세한 점검은 [docs/JUICE_SHOP_NETWORK_SETUP.md](docs/JUICE_SHOP_NETWORK_SETUP.md) §4.
-2. **프록시:** (위에서 `activate` 한 상태에서) `uvicorn main:app --host 127.0.0.1 --port 8080` → `http://127.0.0.1:8080` , 헬스: `/__proxy/health` (`.env` 의 `WAF_*`). 타깃은 **`UPSTREAM_URL`만** 바꿔 교체.
+2. **프록시:** (위에서 `activate` 한 상태에서) `python3 -m uvicorn main:app --host 0.0.0.0 --port 8080 --reload` → 팀원은 `http://<이-Mac-LAN-IP>:8080/` , 헬스: `/__proxy/health` (`.env` 의 `WAF_*`). 타깃은 **`UPSTREAM_URL`만** 바꿔 교체.
+
+**대시보드 UI 파일:** `templates/dashboard.html` · 스타일 `static/waf/css/dashboard.css` · 스크립트 `static/waf/js/dashboard.js` (`/__waf/static/...` 로 제공).
 
 **같은 Wi‑Fi의 다른 사람이 접속**해 공격·데모할 때는 [docs/JUICE_SHOP_NETWORK_SETUP.md](docs/JUICE_SHOP_NETWORK_SETUP.md) 를 본다.
 
