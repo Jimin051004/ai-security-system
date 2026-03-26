@@ -80,6 +80,22 @@
             <p id="last-block-body" class="last-block-body">아직 차단 기록이 없습니다.</p>
             <button type="button" class="btn-ghost" id="btn-copy-last-block" hidden>요약 복사</button>
           </div>
+          <div class="card card-status-pill">
+            <h2>연결</h2>
+            <p id="upstream-status" role="status" aria-live="polite">…</p>
+          </div>
+          <div class="card card-status-pill">
+            <h2>WAF</h2>
+            <p id="waf-enabled" role="status">…</p>
+          </div>
+          <div class="card card-status-text">
+            <h2>차단 심각도</h2>
+            <p id="waf-severity" class="mono-stat" role="status">…</p>
+          </div>
+          <div class="card card-status-text">
+            <h2>본문 미리보기</h2>
+            <p id="body-preview-max" class="mono-stat">…</p>
+          </div>
           <div class="card">
             <h2>프록시 공개 주소</h2>
             <p id="proxy-public-origin" class="mono-stat">…</p>
@@ -93,34 +109,6 @@
           <div class="card">
             <h2>업스트림</h2>
             <p><a href="{{ upstream }}" target="_blank" rel="noopener">{{ upstream }}</a></p>
-          </div>
-          <div class="card">
-            <h2>연결</h2>
-            <p id="upstream-status" role="status" aria-live="polite">…</p>
-          </div>
-          <div class="card">
-            <h2>WAF</h2>
-            <p id="waf-enabled" role="status">…</p>
-          </div>
-          <div class="card card-severity">
-            <h2>차단 심각도</h2>
-            <p class="card-sub">이 심각도 이상 탐지 시 차단 · 서버 재시작 없이 즉시 반영</p>
-            <div
-              id="waf-severity-group"
-              class="severity-btn-group"
-              role="group"
-              aria-label="차단 최소 심각도"
-            >
-              <button type="button" class="severity-btn" data-severity="low" aria-pressed="false" title="LOW 이상이면 차단">LOW</button>
-              <button type="button" class="severity-btn" data-severity="medium" aria-pressed="false" title="MEDIUM 이상이면 차단">MEDIUM</button>
-              <button type="button" class="severity-btn" data-severity="high" aria-pressed="false" title="HIGH 이상이면 차단">HIGH</button>
-              <button type="button" class="severity-btn" data-severity="critical" aria-pressed="false" title="CRITICAL만 차단">CRITICAL</button>
-            </div>
-            <p id="waf-severity-status" class="severity-status mono-stat" aria-live="polite"></p>
-          </div>
-          <div class="card">
-            <h2>본문 미리보기</h2>
-            <p id="body-preview-max" class="mono-stat">…</p>
           </div>
           <div class="card">
             <h2>표시 중 로그</h2>

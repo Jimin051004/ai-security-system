@@ -21,7 +21,7 @@ def test_dashboard_canonical_200() -> None:
     assert "detections-feed-body" in r.text
     assert "탐지·차단 상세" in r.text
     assert "차단 KPI" in r.text
-    assert "waf-severity-group" in r.text
+    assert 'id="waf-severity"' in r.text
     assert "proxy-public-origin" in r.text
     assert "env-snapshot" in r.text
     assert "자동 갱신" in r.text

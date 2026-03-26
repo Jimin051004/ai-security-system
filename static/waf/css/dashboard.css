@@ -231,6 +231,16 @@ body::before {
 .card.card-wide {
   grid-column: 1 / -1;
 }
+.card-status-pill p,
+.card-status-text p {
+  min-height: 2.15rem;
+  display: flex;
+  align-items: center;
+}
+.card-status-text .mono-stat {
+  font-size: 0.95rem;
+  color: var(--text);
+}
 .card h2 {
   margin: 0 0 0.5rem;
   font-size: 0.68rem;
