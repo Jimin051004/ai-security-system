@@ -8,10 +8,10 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import FastAPI, Request, Response
 
-UPSTREAM_RAW = os.environ.get("UPSTREAM_URL", "http://127.0.0.1:3000").rstrip("/")
+UPSTREAM_RAW = os.environ.get("UPSTREAM_URL", "http://127.0.0.1:3001").rstrip("/")
 _parsed = urlparse(UPSTREAM_RAW)
 if not _parsed.scheme or not _parsed.netloc:
-    raise SystemExit("UPSTREAM_URL must be a full URL, e.g. http://127.0.0.1:3000")
+    raise SystemExit("UPSTREAM_URL must be a full URL, e.g. http://127.0.0.1:3001")
 
 UPSTREAM_BASE = UPSTREAM_RAW
 UPSTREAM_HOST_HEADER = _parsed.netloc
