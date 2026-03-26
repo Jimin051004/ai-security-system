@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any
@@ -245,11 +244,10 @@ async def api_dashboard_summary(request: Request | None = None) -> dict[str, Any
 
 async def dashboard_page(request: Request) -> HTMLResponse:
     initial = await api_dashboard_summary(request)
-    boot_json = json.dumps(initial, ensure_ascii=False)
     tpl = _jinja_env.get_template("dashboard.html")
     html = tpl.render(
         upstream=UPSTREAM_BASE,
-        boot_json=boot_json,
+        boot=initial,
         access=initial.get("access"),
     )
     return HTMLResponse(html)

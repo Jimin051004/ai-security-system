@@ -529,6 +529,7 @@
       </div>
     </div>
   </div>
+  <script type="application/json" id="waf-boot-data">{{ boot | tojson }}</script>
   <script>
     function setClock() {
       document.getElementById("clock").textContent = new Date().toLocaleString("ko-KR");
@@ -588,7 +589,15 @@
     }
     setClock();
     setInterval(setClock, 1000);
-    applySummary(JSON.parse({{ boot_json | tojson }}));
+    (function bootFromDom() {
+      const el = document.getElementById("waf-boot-data");
+      if (!el) return;
+      try {
+        applySummary(JSON.parse(el.textContent));
+      } catch (e) {
+        console.error("WAF dashboard boot:", e);
+      }
+    })();
     document.getElementById("btn-refresh").addEventListener("click", loadSummary);
     document.getElementById("btn-refresh-2").addEventListener("click", loadSummary);
     setInterval(loadSummary, 15000);
