@@ -96,7 +96,7 @@ function renderClients(data) {
     totalReq += Number(list[i].requests) || 0;
   }
   if (sub) {
-    sub.textContent = uniq > 0 ? "· 요청 " + totalReq + "회" : "";
+    sub.textContent = uniq > 0 ? "· 통과 요청 " + totalReq + "회" : "";
   }
   if (!list.length) {
     body.innerHTML =

@@ -56,12 +56,17 @@
               <span id="clients-count">0</span><span class="clients-label">명</span>
               <span class="clients-sub" id="clients-requests-total"></span>
             </p>
+            <p class="clients-hint">
+              IP는 이 프록시로 요청을 보낸 기기 주소입니다(X-Forwarded-For가 있으면 그중 첫 값).
+              「통과 요청」은 업스트림으로 넘긴 HTTP 한 건당 1이므로, 한 페이지를 열 때도 JS·CSS·API 등으로 여러 번 올라갑니다.
+              <strong>/__waf/</strong> 대시보드와 그 정적 파일은 집계에서 제외됩니다.
+            </p>
             <div class="traffic-feed">
               <table class="traffic-table">
                 <thead>
                   <tr>
                     <th>IP</th>
-                    <th>요청</th>
+                    <th>통과 요청</th>
                     <th>첫 접속 (KST)</th>
                     <th>마지막 (KST)</th>
                     <th>User-Agent</th>

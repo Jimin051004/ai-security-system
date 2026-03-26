@@ -335,6 +335,17 @@ body::before {
   font-size: 0.78rem;
   color: var(--text-dim);
 }
+.clients-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+  max-width: 52rem;
+}
+.clients-hint strong {
+  color: #a5b4fc;
+  font-weight: 600;
+}
 @media (max-width: 768px) {
   .app { flex-direction: column; }
   .sidebar {
