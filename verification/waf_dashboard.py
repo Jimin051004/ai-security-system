@@ -12,15 +12,19 @@ def test_dashboard_canonical_200() -> None:
     client = TestClient(app)
     r = client.get("/__waf/dashboard")
     assert r.status_code == 200
-    assert "WAF 대시보드" in r.text
+    assert "대시보드" in r.text
     assert "업스트림" in r.text
     assert "/__waf/static/css/dashboard.css" in r.text
     assert "/__waf/static/js/dashboard.js" in r.text
     assert "접속자" in r.text
     assert "프록시 로그" in r.text
-    assert "modules-feed-body" in r.text
     assert "detections-feed-body" in r.text
     assert "탐지·차단 상세" in r.text
+    assert "차단 KPI" in r.text
+    assert "waf-severity-group" in r.text
+    assert "proxy-public-origin" in r.text
+    assert "env-snapshot" in r.text
+    assert "자동 갱신" in r.text
     assert "no-store" in r.headers.get("cache-control", "")
 
 
@@ -64,6 +68,10 @@ def test_api_dashboard_summary_json() -> None:
     assert "access" in data
     assert "client_ip" in data["access"]
     assert "user_agent" in data["access"]
+    assert "process_started_at" in data
+    assert "proxy_public_origin" in data
+    assert "env" in data
+    assert "UPSTREAM_URL" in data["env"]
 
 
 def test_api_dashboard_summary_legacy_path() -> None:
@@ -83,6 +91,49 @@ def test_waf_api_modules_lists_a05() -> None:
     assert "a05" in ids
     a05 = next(m for m in data["modules"] if m["module_id"] == "a05")
     assert a05.get("title") == "Injection"
+    assert a05.get("implementation") == "rules"
+    a01 = next(m for m in data["modules"] if m["module_id"] == "a01")
+    assert a01.get("implementation") == "skeleton"
+
+
+def test_waf_api_set_block_severity() -> None:
+    import os
+
+    client = TestClient(app)
+    old = os.environ.get("WAF_BLOCK_MIN_SEVERITY")
+    try:
+        r = client.put(
+            "/__waf/api/settings/block-severity",
+            json={"min_severity": "critical"},
+        )
+        assert r.status_code == 200
+        assert r.json().get("waf_block_min_severity") == "critical"
+        summ = client.get("/__waf/api/summary").json()
+        assert summ.get("waf_block_min_severity") == "critical"
+        assert summ["env"]["WAF_BLOCK_MIN_SEVERITY"] == "critical"
+        bad = client.put(
+            "/__waf/api/settings/block-severity",
+            json={"min_severity": "nope"},
+        )
+        assert bad.status_code == 400
+    finally:
+        if old is not None:
+            os.environ["WAF_BLOCK_MIN_SEVERITY"] = old
+        else:
+            os.environ.pop("WAF_BLOCK_MIN_SEVERITY", None)
+
+
+def test_waf_api_stats_json() -> None:
+    client = TestClient(app)
+    r = client.get("/__waf/api/stats")
+    assert r.status_code == 200
+    d = r.json()
+    assert d.get("status") == "ok"
+    assert "total_logged" in d
+    assert "blocked_count" in d
+    assert "block_ratio" in d
+    assert "top_attack_types" in d
+    assert "top_rule_ids" in d
 
 
 def test_blocked_request_logs_enriched_findings_in_traffic_api() -> None:

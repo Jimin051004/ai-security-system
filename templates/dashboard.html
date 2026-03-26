@@ -102,9 +102,21 @@
             <h2>WAF</h2>
             <p id="waf-enabled" role="status">…</p>
           </div>
-          <div class="card">
+          <div class="card card-severity">
             <h2>차단 심각도</h2>
-            <p id="waf-severity">…</p>
+            <p class="card-sub">이 심각도 이상 탐지 시 차단 · 서버 재시작 없이 즉시 반영</p>
+            <div
+              id="waf-severity-group"
+              class="severity-btn-group"
+              role="group"
+              aria-label="차단 최소 심각도"
+            >
+              <button type="button" class="severity-btn" data-severity="low" aria-pressed="false" title="LOW 이상이면 차단">LOW</button>
+              <button type="button" class="severity-btn" data-severity="medium" aria-pressed="false" title="MEDIUM 이상이면 차단">MEDIUM</button>
+              <button type="button" class="severity-btn" data-severity="high" aria-pressed="false" title="HIGH 이상이면 차단">HIGH</button>
+              <button type="button" class="severity-btn" data-severity="critical" aria-pressed="false" title="CRITICAL만 차단">CRITICAL</button>
+            </div>
+            <p id="waf-severity-status" class="severity-status mono-stat" aria-live="polite"></p>
           </div>
           <div class="card">
             <h2>본문 미리보기</h2>

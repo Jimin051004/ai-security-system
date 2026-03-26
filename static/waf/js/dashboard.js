@@ -15,6 +15,60 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+function updateSeverityButtonsUi(raw) {
+  var norm = String(raw == null ? "" : raw)
+    .trim()
+    .toLowerCase();
+  var group = document.getElementById("waf-severity-group");
+  if (!group) return;
+  var buttons = group.querySelectorAll(".severity-btn");
+  for (var i = 0; i < buttons.length; i++) {
+    var btn = buttons[i];
+    var on = btn.getAttribute("data-severity") === norm;
+    btn.classList.toggle("severity-btn-active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  var st = document.getElementById("waf-severity-status");
+  if (st) {
+    st.textContent = norm
+      ? "현재 기준: " + norm.toUpperCase() + " 이상 차단"
+      : "";
+    st.classList.remove("severity-status-err");
+  }
+}
+
+async function putBlockSeverity(level) {
+  var st = document.getElementById("waf-severity-status");
+  try {
+    var res = await fetch("/__waf/api/settings/block-severity", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ min_severity: level }),
+    });
+    var data = await res.json().catch(function () {
+      return {};
+    });
+    if (!res.ok) {
+      var det = data.detail;
+      if (Array.isArray(det)) {
+        det = det
+          .map(function (x) {
+            return x && x.msg ? x.msg : JSON.stringify(x);
+          })
+          .join("; ");
+      }
+      throw new Error(det || "HTTP " + res.status);
+    }
+    await fetchAndApplySummary(false);
+  } catch (err) {
+    if (st) {
+      st.textContent =
+        "변경 실패: " + (err && err.message ? err.message : String(err));
+      st.classList.add("severity-status-err");
+    }
+  }
+}
+
 function applySummary(d) {
   var up = d.upstream_ok;
   var el = document.getElementById("upstream-status");
@@ -39,8 +93,7 @@ function applySummary(d) {
       ? '<span class="pill ok" aria-label="WAF 활성">켜짐</span>'
       : '<span class="pill bad" aria-label="WAF 비활성">꺼짐</span>';
   }
-  var sev = document.getElementById("waf-severity");
-  if (sev) sev.textContent = d.waf_block_min_severity;
+  updateSeverityButtonsUi(d.waf_block_min_severity);
   var bpm = document.getElementById("body-preview-max");
   if (bpm && d.body_preview_max != null) {
     bpm.textContent = String(d.body_preview_max) + " bytes";
@@ -574,6 +627,17 @@ if (btnLb) {
   btnLb.addEventListener("click", function () {
     if (!lastBlockSummaryText) return;
     navigator.clipboard.writeText(lastBlockSummaryText).catch(function () {});
+  });
+}
+
+var sevGroup = document.getElementById("waf-severity-group");
+if (sevGroup) {
+  sevGroup.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (!t || !t.getAttribute) return;
+    var level = t.getAttribute("data-severity");
+    if (!level) return;
+    putBlockSeverity(level);
   });
 }
 

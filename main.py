@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import httpx
+from pydantic import BaseModel, Field
 import jinja2
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from starlette.datastructures import MutableHeaders
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -85,6 +88,8 @@ METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
 # Juice Shop 등 업스트림에도 /dashboard·/api/... 가 있어 catch-all에 먹히면 프록시 UI 대신 업스트림이 뜸.
 # 프록시 전용 UI는 항상 이 접두사(및 아래 예외 경로)로만 노출.
 WAF_UI_PREFIX = "/__waf"
+
+_PROCESS_STARTED_AT = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _normalize_proxy_path_segment(full_path: str) -> str:
@@ -445,14 +450,25 @@ async def proxy_health() -> dict[str, Any]:
         "waf_enabled": _waf_enabled(),
         "waf_block_min_severity": _waf_block_min_severity().value,
         "dashboard_path": f"{WAF_UI_PREFIX}/dashboard",
+        "process_started_at": _PROCESS_STARTED_AT,
     }
 
 
 async def api_dashboard_summary(request: Request | None = None) -> dict[str, Any]:
     up_ok, up_err = await _probe_upstream()
     out = _dashboard_summary_dict(upstream_ok=up_ok, upstream_error=up_err)
+    out["process_started_at"] = _PROCESS_STARTED_AT
+    out["proxy_rewrite_max_bytes"] = PROXY_REWRITE_MAX_BYTES
+    out["env"] = {
+        "UPSTREAM_URL": UPSTREAM_RAW,
+        "WAF_ENABLED": str(_waf_enabled()).lower(),
+        "WAF_BLOCK_MIN_SEVERITY": _waf_block_min_severity().value,
+        "WAF_BODY_PREVIEW_MAX": _body_preview_max(),
+        "PROXY_REWRITE_MAX_BYTES": PROXY_REWRITE_MAX_BYTES,
+    }
     if request is not None:
         out["access"] = _access_snapshot(request)
+        out["proxy_public_origin"] = _request_public_origin(request)
     return out
 
 
@@ -494,14 +510,51 @@ async def waf_api_clients() -> dict[str, Any]:
     return await traffic_log.clients_snapshot()
 
 
+def _module_implementation_label(module_id: str) -> str:
+    return "rules" if module_id == "a05" else "skeleton"
+
+
 @app.get("/__waf/api/modules")
 async def waf_api_modules() -> dict[str, Any]:
     return {
         "status": "ok",
         "modules": [
-            {"module_id": m.module_id, "owasp_id": m.owasp_id, "title": m.title}
+            {
+                "module_id": m.module_id,
+                "owasp_id": m.owasp_id,
+                "title": m.title,
+                "implementation": _module_implementation_label(m.module_id),
+            }
             for m in MODULES
         ],
+    }
+
+
+@app.get("/__waf/api/stats")
+async def waf_api_stats() -> dict[str, Any]:
+    return await traffic_log.stats_snapshot()
+
+
+_ALLOWED_UI_BLOCK_SEVERITIES = frozenset({"low", "medium", "high", "critical"})
+
+
+class BlockSeverityUpdate(BaseModel):
+    min_severity: str = Field(..., min_length=2, max_length=16)
+
+
+@app.put("/__waf/api/settings/block-severity")
+async def waf_api_set_block_severity(body: BlockSeverityUpdate) -> dict[str, Any]:
+    """런타임에 `WAF_BLOCK_MIN_SEVERITY`와 동일 효과 (프로세스 메모리의 os.environ만 갱신)."""
+    key = body.min_severity.strip().lower()
+    if key not in _ALLOWED_UI_BLOCK_SEVERITIES:
+        raise HTTPException(
+            status_code=400,
+            detail="min_severity must be one of: low, medium, high, critical",
+        )
+    os.environ["WAF_BLOCK_MIN_SEVERITY"] = key
+    return {
+        "status": "ok",
+        "waf_block_min_severity": _waf_block_min_severity().value,
     }
 
 
