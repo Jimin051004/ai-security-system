@@ -33,6 +33,9 @@ def test_api_dashboard_summary_json() -> None:
     assert "waf_block_min_severity" in data
     assert "body_preview_max" in data
     assert "upstream_ok" in data
+    assert "access" in data
+    assert "client_ip" in data["access"]
+    assert "user_agent" in data["access"]
 
 
 def test_api_dashboard_summary_legacy_path() -> None:

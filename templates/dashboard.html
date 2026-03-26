@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AI Security System — 대시보드</title>
+  <meta name="color-scheme" content="dark" />
   <style>
     :root {
       --bg-deep: #0a0e17;
@@ -23,37 +24,64 @@
       --radius-sm: 10px;
     }
     * { box-sizing: border-box; }
+    html {
+      color-scheme: dark;
+    }
     html, body {
       margin: 0;
       min-height: 100%;
       font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", sans-serif;
       color: var(--text);
-      background: var(--bg-deep);
     }
     body {
-      background-image:
-        radial-gradient(ellipse 120% 80% at 20% -20%, rgba(59, 130, 246, 0.18), transparent 50%),
-        radial-gradient(ellipse 90% 60% at 100% 0%, rgba(168, 85, 247, 0.14), transparent 45%),
-        radial-gradient(ellipse 70% 50% at 50% 100%, rgba(99, 102, 241, 0.08), transparent 40%),
-        linear-gradient(180deg, var(--bg-mid) 0%, var(--bg-deep) 100%);
-      background-attachment: fixed;
+      position: relative;
+      background: #060912;
+      min-height: 100vh;
+    }
+    /* 글래스 + 블루·퍼플 오브 (참고 UI 느낌) */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse 110% 85% at 5% -15%, rgba(59, 130, 246, 0.35), transparent 52%),
+        radial-gradient(ellipse 90% 70% at 95% 5%, rgba(168, 85, 247, 0.28), transparent 48%),
+        radial-gradient(ellipse 70% 50% at 50% 105%, rgba(99, 102, 241, 0.18), transparent 42%),
+        linear-gradient(168deg, #0d1326 0%, #080c18 38%, #060912 100%);
     }
     .app {
+      position: relative;
+      z-index: 1;
       display: flex;
       min-height: 100vh;
     }
     /* —— Sidebar —— */
     .sidebar {
+      position: relative;
       width: 15.5rem;
       flex-shrink: 0;
-      padding: 1.25rem 1rem;
+      padding: 1.25rem 1rem 1.25rem 1.2rem;
       display: flex;
       flex-direction: column;
       gap: 1.25rem;
-      border-right: 1px solid var(--glass-border);
-      background: rgba(8, 11, 20, 0.4);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      border-right: 1px solid rgba(129, 140, 248, 0.2);
+      background: linear-gradient(165deg, rgba(16, 22, 42, 0.82), rgba(8, 11, 22, 0.88));
+      backdrop-filter: blur(24px) saturate(1.2);
+      -webkit-backdrop-filter: blur(24px) saturate(1.2);
+      box-shadow: 4px 0 32px rgba(0, 0, 0, 0.35);
+    }
+    .sidebar::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: linear-gradient(180deg, #38bdf8, #6366f1 45%, #c084fc);
+      border-radius: 0 4px 4px 0;
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.45);
     }
     .brand {
       display: flex;
@@ -155,9 +183,10 @@
       flex-wrap: wrap;
       gap: 0.75rem;
       padding: 1rem 1.5rem;
-      border-bottom: 1px solid var(--glass-border);
-      background: rgba(8, 11, 20, 0.25);
-      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(129, 140, 248, 0.18);
+      background: linear-gradient(90deg, rgba(15, 23, 42, 0.75), rgba(10, 14, 28, 0.5));
+      backdrop-filter: blur(14px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
     }
     .topbar-left {
       display: flex;
@@ -256,17 +285,52 @@
       grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
     }
     .card {
-      background: var(--glass);
-      border: 1px solid var(--glass-border);
+      background: linear-gradient(155deg, rgba(30, 38, 62, 0.72), rgba(14, 18, 32, 0.88));
+      border: 1px solid rgba(129, 140, 248, 0.22);
       border-radius: var(--radius);
       padding: 1rem 1.15rem;
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      transition: border-color 0.2s, box-shadow 0.2s;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
     .card:hover {
-      border-color: rgba(129, 140, 248, 0.2);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+      border-color: rgba(165, 180, 252, 0.45);
+      box-shadow: 0 12px 40px rgba(59, 130, 246, 0.12), 0 4px 24px rgba(0, 0, 0, 0.35);
+      transform: translateY(-1px);
+    }
+    .card.card-wide {
+      grid-column: 1 / -1;
+    }
+    .access-rows {
+      display: grid;
+      gap: 0.7rem;
+    }
+    .access-row {
+      display: grid;
+      grid-template-columns: minmax(6.5rem, 8.5rem) 1fr;
+      gap: 0.75rem;
+      align-items: start;
+      font-size: 0.8rem;
+      padding: 0.45rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .access-row:last-child { border-bottom: none; }
+    .access-row dt {
+      margin: 0;
+      color: var(--text-dim);
+      font-weight: 600;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .access-row dd {
+      margin: 0;
+      color: #e2e8ff;
+      word-break: break-word;
+      font-family: ui-monospace, "SF Mono", Consolas, monospace;
+      font-size: 0.76rem;
+      line-height: 1.45;
     }
     .card h2 {
       margin: 0 0 0.5rem;
@@ -362,6 +426,9 @@
   </style>
 </head>
 <body>
+  <noscript>
+    <p style="margin:0;padding:1rem;background:#1e293b;color:#f8fafc;font-family:system-ui;">JavaScript를 켜야 대시보드가 표시됩니다.</p>
+  </noscript>
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
@@ -435,6 +502,24 @@
             <h2>본문 프리뷰 최대</h2>
             <p id="body-preview">…</p>
           </div>
+          <div class="card card-wide">
+            <h2>이번 접속 · HTTP 메타 (프록시가 본 요청)</h2>
+            <p style="margin:0 0 0.75rem;font-size:0.78rem;color:var(--text-dim);line-height:1.45;">
+              아래 값은 <strong>지금 이 대시보드를 연 브라우저</strong>의 요청 기준입니다. 앞단에 Nginx 등이 있으면 <code>X-Forwarded-For</code>가 채워질 수 있습니다.
+            </p>
+            <dl class="access-rows">
+              <div class="access-row"><dt>Client IP</dt><dd id="acc-client-ip">{% if access %}{{ access.client_ip }}{% else %}…{% endif %}</dd></div>
+              <div class="access-row"><dt>X-Forwarded-For</dt><dd id="acc-xff">{% if access %}{{ access.x_forwarded_for or "—" }}{% else %}…{% endif %}</dd></div>
+              <div class="access-row"><dt>X-Real-IP</dt><dd id="acc-xri">{% if access %}{{ access.x_real_ip or "—" }}{% else %}…{% endif %}</dd></div>
+              <div class="access-row"><dt>Host</dt><dd id="acc-host">{% if access %}{{ access.host_header }}{% else %}…{% endif %}</dd></div>
+              <div class="access-row"><dt>Method</dt><dd id="acc-method">{% if access %}{{ access.method }}{% else %}…{% endif %}</dd></div>
+              <div class="access-row"><dt>Path</dt><dd id="acc-path">{% if access %}{{ access.path }}{% else %}…{% endif %}</dd></div>
+              <div class="access-row"><dt>Full URL</dt><dd id="acc-url">{% if access %}{{ access.full_url }}{% else %}…{% endif %}</dd></div>
+              <div class="access-row"><dt>Referer</dt><dd id="acc-referer">{% if access %}{{ access.referer }}{% else %}…{% endif %}</dd></div>
+              <div class="access-row"><dt>Accept-Language</dt><dd id="acc-lang">{% if access %}{{ access.accept_language }}{% else %}…{% endif %}</dd></div>
+              <div class="access-row"><dt>User-Agent</dt><dd id="acc-ua">{% if access %}{{ access.user_agent }}{% else %}…{% endif %}</dd></div>
+            </dl>
+          </div>
         </div>
         <div class="actions">
           <a class="btn-gradient" style="width: auto; text-decoration: none; display: inline-flex;" href="/" target="_blank" rel="noopener">프록시로 업스트림 열기</a>
@@ -448,7 +533,25 @@
     function setClock() {
       document.getElementById("clock").textContent = new Date().toLocaleString("ko-KR");
     }
+    function applyAccess(a) {
+      if (!a) return;
+      const t = (id, v) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = v != null && String(v).length ? v : "—";
+      };
+      t("acc-client-ip", a.client_ip);
+      t("acc-xff", a.x_forwarded_for);
+      t("acc-xri", a.x_real_ip);
+      t("acc-host", a.host_header);
+      t("acc-method", a.method);
+      t("acc-path", a.path);
+      t("acc-url", a.full_url);
+      t("acc-referer", a.referer);
+      t("acc-lang", a.accept_language);
+      t("acc-ua", a.user_agent);
+    }
     function applySummary(d) {
+      if (d.access) applyAccess(d.access);
       const up = d.upstream_ok;
       const el = document.getElementById("upstream-status");
       if (up === true) {

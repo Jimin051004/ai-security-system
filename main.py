@@ -121,6 +121,34 @@ def _dashboard_summary_dict(*, upstream_ok: bool, upstream_error: str) -> dict[s
     }
 
 
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    rip = request.headers.get("x-real-ip")
+    if rip:
+        return rip.strip()
+    if request.client:
+        return request.client.host or "—"
+    return "—"
+
+
+def _access_snapshot(request: Request) -> dict[str, Any]:
+    u = request.url
+    return {
+        "client_ip": _client_ip(request),
+        "x_forwarded_for": request.headers.get("x-forwarded-for") or "",
+        "x_real_ip": request.headers.get("x-real-ip") or "",
+        "user_agent": request.headers.get("user-agent") or "—",
+        "method": request.method,
+        "path": u.path,
+        "full_url": str(u),
+        "host_header": request.headers.get("host") or "—",
+        "referer": request.headers.get("referer") or "—",
+        "accept_language": request.headers.get("accept-language") or "—",
+    }
+
+
 def _upstream_headers(request: Request) -> dict[str, str]:
     out: dict[str, str] = {}
     for key, value in request.headers.items():
@@ -207,17 +235,23 @@ async def proxy_health() -> dict[str, Any]:
     }
 
 
-async def api_dashboard_summary() -> dict[str, Any]:
+async def api_dashboard_summary(request: Request | None = None) -> dict[str, Any]:
     up_ok, up_err = await _probe_upstream()
-    return _dashboard_summary_dict(upstream_ok=up_ok, upstream_error=up_err)
+    out = _dashboard_summary_dict(upstream_ok=up_ok, upstream_error=up_err)
+    if request is not None:
+        out["access"] = _access_snapshot(request)
+    return out
 
 
 async def dashboard_page(request: Request) -> HTMLResponse:
-    up_ok, up_err = await _probe_upstream()
-    initial = _dashboard_summary_dict(upstream_ok=up_ok, upstream_error=up_err)
+    initial = await api_dashboard_summary(request)
     boot_json = json.dumps(initial, ensure_ascii=False)
     tpl = _jinja_env.get_template("dashboard.html")
-    html = tpl.render(upstream=UPSTREAM_BASE, boot_json=boot_json)
+    html = tpl.render(
+        upstream=UPSTREAM_BASE,
+        boot_json=boot_json,
+        access=initial.get("access"),
+    )
     return HTMLResponse(html)
 
 
@@ -227,13 +261,13 @@ async def waf_dashboard_canonical(request: Request) -> HTMLResponse:
 
 
 @app.get("/__waf/api/summary")
-async def waf_api_summary_canonical() -> dict[str, Any]:
-    return await api_dashboard_summary()
+async def waf_api_summary_canonical(request: Request) -> dict[str, Any]:
+    return await api_dashboard_summary(request)
 
 
 @app.get("/api/dashboard/summary")
-async def api_dashboard_summary_legacy() -> dict[str, Any]:
-    return await api_dashboard_summary()
+async def api_dashboard_summary_legacy(request: Request) -> dict[str, Any]:
+    return await api_dashboard_summary(request)
 
 
 @app.get("/dashboard")
@@ -264,7 +298,7 @@ async def proxy_path(full_path: str, request: Request) -> Response:
     if request.method == "GET" and _is_waf_dashboard_path(norm):
         return await dashboard_page(request)
     if request.method == "GET" and _is_waf_summary_api_path(norm):
-        return await api_dashboard_summary()
+        return await api_dashboard_summary(request)
     # 나머지 /__waf/* 는 업스트림으로 보내지 않음
     if full_path == "__waf" or full_path.startswith("__waf/"):
         return Response(status_code=404)
