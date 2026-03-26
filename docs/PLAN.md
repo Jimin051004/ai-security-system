@@ -231,9 +231,9 @@ ai-security-system/
   api/                    # 대시보드 라우터
   static/ / templates/    # 웹 UI
   tests/                  # 단위·통합 테스트
+  docs/                   # 마크다운 문서 (PLAN, 네트워크 가이드 등)
   requirements.txt
   .env.example
-  PLAN.md
   README.md
 ```
 

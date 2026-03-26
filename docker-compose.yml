@@ -1,5 +1,5 @@
 # OWASP Juice Shop — 웹 취약점 데모 앱 (WAF 업스트림으로 사용)
-# 시작: docker compose -f docker-compose.yml up -d
+# 시작: docker compose -f docker-compose.yml up -d  (네트워크·포트: docs/JUICE_SHOP_NETWORK_SETUP.md)
 # 같은 폴더에 compose.yaml / compose.yml 이 있으면 Docker 가 파일을 병합해 호스트 3000 이 다시 붙을 수 있음 → -f 로 이 파일만 쓰거나 다른 compose 파일을 삭제/이동
 #
 # "3001:3000" = 호스트(맥/윈) 3001 → 컨테이너 내부 3000. 오른쪽 3000은 이미지 고정값, 바꾸지 말 것.
