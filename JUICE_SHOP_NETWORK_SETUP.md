@@ -58,12 +58,20 @@ hostname -I | awk '{print $1}'
 
 ## 4. Juice Shop 기동 (Docker)
 
-프로젝트 루트에서:
+프로젝트 루트에서 **이 파일만** 쓰도록 `-f docker-compose.yml` 을 붙인다. (Docker Compose v2는 `compose.yaml` / `compose.yml` 과 `docker-compose.yml` 이 **같이 있으면 자동 병합**한다. 다른 파일에 `3000:3000` 이 있으면 `Bind for 0.0.0.0:3000` 오류가 난다.)
 
 ```bash
-docker compose pull
-docker compose up -d
+docker compose -f docker-compose.yml pull
+docker compose -f docker-compose.yml up -d
 ```
+
+**실제로 어떤 포트가 열리는지 확인:**
+
+```bash
+docker compose -f docker-compose.yml config | grep -A2 "ports:"
+```
+
+여기서 `published` 가 **호스트 포트**다. **`published: "3001"`** 이어야 정상이고, **`published: "3000"`** 이면 다른 compose 파일과 병합된 것이다. 같은 폴더에 있는 `compose.yaml`, `compose.yml`, `docker-compose.override.yml` 을 확인·삭제하거나, 위처럼 **반드시 `-f docker-compose.yml`** 만 사용한다.
 
 이 저장소의 `docker-compose.yml`은 **`3001:3000`**(호스트 3001 → 컨테이너 내부 3000)으로 붙인다.  
 같은 네트워크의 다른 사람은 다음으로 **직접** Juice Shop에 접속할 수 있다.
@@ -71,12 +79,12 @@ docker compose up -d
 - **직접 접속 URL:** `http://192.168.0.10:3001`  
   (WAF 프록시를 거치지 않음 — 순수 타깃 앱만 테스트할 때)
 
-호스트 포트를 바꾸려면 `docker-compose.yml`에서 `"3002:3000"`처럼 **왼쪽 숫자만** 수정한 뒤 `docker compose up -d`를 다시 실행하고, **`.env`의 `UPSTREAM_URL` 포트도 동일하게** 맞춘다.
+호스트 포트를 바꾸려면 `docker-compose.yml`에서 `"3002:3000"`처럼 **왼쪽 숫자만** 수정한 뒤 `docker compose -f docker-compose.yml up -d`를 다시 실행하고, **`.env`의 `UPSTREAM_URL` 포트도 동일하게** 맞춘다.
 
 컨테이너 중지:
 
 ```bash
-docker compose down
+docker compose -f docker-compose.yml down
 ```
 
 ---
@@ -154,7 +162,8 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 
 ## 8. 자주 있는 이슈
 
-- **호스트 포트 충돌 (`address already in use`):** `docker-compose.yml`의 `"3001:3000"`에서 호스트 쪽(왼쪽)을 예: `3002`로 바꾸고, `.env`의 `UPSTREAM_URL` 포트도 맞춘 뒤 `docker compose up -d`를 다시 실행한다. 예전에 Docker가 3000을 쓰려다 실패한 경우, 프로젝트 루트 `.env`에 **`JUICE_SHOP_HOST_PORT=3000` 같은 줄이 있으면 삭제**한다(현재 compose는 이 변수를 쓰지 않지만, 혼동을 막기 위함).
+- **`Bind for 0.0.0.0:3000` 인데 `docker-compose.yml` 은 3001 인 경우:** Compose **파일 병합** 때문일 때가 많다. `ls compose.y*ml docker-compose*.yml` 로 여러 파일이 있는지 보고, `docker compose -f docker-compose.yml config | grep -A2 ports` 로 최종 포트를 확인한다. 해결: **`docker compose -f docker-compose.yml up -d`** 만 쓰거나, 불필요한 `compose.yaml` / `docker-compose.override.yml` 을 제거한다.
+- **호스트 포트 충돌 (`address already in use`):** `docker-compose.yml`의 `"3001:3000"`에서 호스트 쪽(왼쪽)을 예: `3002`로 바꾸고, `.env`의 `UPSTREAM_URL` 포트도 맞춘 뒤 `docker compose -f docker-compose.yml up -d`를 다시 실행한다.
 - **리다이렉트가 `localhost`·다른 포트로 감:** Juice Shop이 절대 URL을 줄 때 발생할 수 있다. 주소창을 다시 `http://<LAN-IP>:8080`(또는 Juice Shop 직접 포트)으로 맞춘다.
 - **`docker compose` 프로젝트 이름 오류:** 이 저장소 `docker-compose.yml` 상단에 `name: ai-security-system` 이 있다. 폴더 경로만 바꿔서 실행하면 된다.
 - **상대방이 접속 불가:** 같은 Wi‑Fi인지, IP가 맞는지, 방화벽·VPN(게스트 격리) 여부를 확인한다.
