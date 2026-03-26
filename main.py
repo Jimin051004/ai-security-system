@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -141,7 +142,7 @@ async def _waf_response_or_none(request: Request) -> Response | None:
 
 
 @app.get("/__proxy/health")
-async def proxy_health() -> dict[str, str]:
+async def proxy_health() -> dict[str, Any]:
     return {
         "status": "ok",
         "upstream": UPSTREAM_BASE,
