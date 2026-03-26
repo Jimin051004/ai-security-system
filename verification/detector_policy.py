@@ -1,4 +1,4 @@
-"""WAF 정책 유닛 테스트 (main / 업스트림 불필요)."""
+"""WAF 정책·집계 로직 (main / 실제 업스트림 불필요)."""
 
 from __future__ import annotations
 

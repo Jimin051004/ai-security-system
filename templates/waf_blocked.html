@@ -7,10 +7,17 @@
   <link rel="stylesheet" href="/__waf/static/css/waf_blocked.css" />
 </head>
 <body>
-  <h1>요청이 WAF에 의해 차단되었습니다</h1>
-  <p class="waf-block-lead">
-    아래 OWASP 분류·공격 유형(A05 인젝션 규칙)이 탐지되어 프록시 정책에 따라 전달되지 않았습니다.
+  <h1>{{ headline }}</h1>
+  <p class="waf-block-lead">{{ subline }}</p>
+  {% if rows|length == 1 %}
+  <p class="waf-block-note">
+    <strong>{{ rows[0].attack_type }}</strong> 취약점 패턴이 입력에서 탐지된 것으로 분류되었습니다.
   </p>
+  {% elif rows|length > 1 %}
+  <p class="waf-block-note">여러 공격 유형이 동시에 탐지되었습니다. 항목별 상세는 아래와 같습니다.</p>
+  {% else %}
+  <p class="waf-block-note">차단 사유는 보안 정책에 따라 기록됩니다.</p>
+  {% endif %}
   <ul class="waf-block-list">
     {% for row in rows %}
     <li>

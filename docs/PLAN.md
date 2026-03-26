@@ -230,7 +230,7 @@ ai-security-system/
   storage/                # DB 모델, 리포지토리
   api/                    # 대시보드 라우터
   static/ / templates/    # 웹 UI
-  tests/                  # 단위·통합 테스트
+  verification/           # 자동 검증 스위트 (pytest)
   docs/                   # 마크다운 문서 (PLAN, 네트워크 가이드 등)
   requirements.txt
   .env.example

@@ -376,23 +376,39 @@ def _prefer_waf_block_html(request: Request) -> bool:
 def _waf_blocked_html_response(payload: dict[str, Any]) -> HTMLResponse:
     rows: list[dict[str, str]] = list(payload.get("findings") or [])
     if not rows:
-        alert_message = "[WAF 차단] 위협이 탐지되어 요청이 차단되었습니다."
+        headline = "위협 패턴이 탐지되어 차단되었습니다"
+        subline = "요청 본문·URL 등에서 차단 기준에 해당하는 입력이 확인되었습니다."
+        alert_message = f"[WAF 차단] {headline}\n{subline}"
     elif len(rows) == 1:
         f0 = rows[0]
-        alert_message = (
-            f"[WAF 차단] {f0.get('owasp_id', '—')} · {f0.get('category', '—')}\n"
-            f"{f0.get('attack_type', '—')}이(가) 확인되어 차단되었습니다.\n"
-            f"규칙: {f0.get('rule_id', '—')} · 위치: {f0.get('location', '—')}"
+        atk = f0.get("attack_type") or "알 수 없는 공격 유형"
+        headline = f"{atk} 취약점이 발견되어 차단되었습니다"
+        subline = (
+            f"OWASP {f0.get('owasp_id', '—')} · {f0.get('category', '—')} · "
+            f"규칙 {f0.get('rule_id', '—')} · 탐지 위치 {f0.get('location', '—')}"
         )
+        alert_message = f"[WAF 차단] {headline}\n{subline}"
     else:
-        f0 = rows[0]
-        alert_message = (
-            f"[WAF 차단] {len(rows)}건의 취약점 패턴이 탐지되어 차단되었습니다.\n"
-            f"대표: {f0.get('owasp_id', '—')} — {f0.get('attack_type', '—')} "
-            f"외 {len(rows) - 1}건"
-        )
+        types: list[str] = []
+        seen_t: set[str] = set()
+        for r in rows:
+            t = r.get("attack_type") or "—"
+            if t not in seen_t:
+                seen_t.add(t)
+                types.append(t)
+        types_str = ", ".join(types[:4])
+        if len(types) > 4:
+            types_str += f" 외 {len(types) - 4}종"
+        headline = "복수 취약점 패턴이 발견되어 차단되었습니다"
+        subline = f"탐지된 유형: {types_str} (총 {len(rows)}건 규칙 매칭)"
+        alert_message = f"[WAF 차단] {headline}\n{subline}"
     tpl = _jinja_env.get_template("waf_blocked.html")
-    html = tpl.render(rows=rows, boot={"alert_message": alert_message})
+    html = tpl.render(
+        rows=rows,
+        boot={"alert_message": alert_message},
+        headline=headline,
+        subline=subline,
+    )
     return HTMLResponse(
         content=html,
         status_code=403,

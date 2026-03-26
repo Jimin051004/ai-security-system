@@ -30,13 +30,15 @@
 6. [static/waf/](#6-staticwaf)
    - [static/waf/css/dashboard.css](#61-staticwafcssdashboardcss)
    - [static/waf/js/dashboard.js](#62-staticwafmjsdashboardjs)
-7. [tests/](#7-tests)
-   - [tests/conftest.py](#71-testsconftestpy)
-   - [tests/test_app_health.py](#72-teststest_app_healthpy)
-   - [tests/test_dashboard.py](#73-teststest_dashboardpy)
-   - [tests/test_detector_policy.py](#74-teststest_detector_policypy)
-   - [tests/test_traffic_log.py](#75-teststest_traffic_logpy)
-   - [tests/test_proxy_rewrite.py](#76-teststest_proxy_rewritepy)
+7. [verification/](#7-verification)
+   - [verification/conftest.py](#71-verificationconftestpy)
+   - [verification/app_health.py](#72-verificationapp_healthpy)
+   - [verification/waf_dashboard.py](#73-verificationwaf_dashboardpy)
+   - [verification/detector_policy.py](#74-verificationdetector_policypy)
+   - [verification/traffic_recorder.py](#75-verificationtraffic_recorderpy)
+   - [verification/proxy_rewrite.py](#76-verificationproxy_rewritepy)
+   - [verification/waf_block_page.py](#77-verificationwaf_block_pagepy)
+   - [verification/a05_login_sqli.py](#78-verificationa05_login_sqlipy)
 8. [전체 요청 처리 흐름 (End-to-End)](#8-전체-요청-처리-흐름-end-to-end)
 9. [데이터 흐름 다이어그램](#9-데이터-흐름-다이어그램)
 
@@ -102,13 +104,15 @@ ai-security-system/
 │   ├── css/dashboard.css    ← 대시보드 다크 테마 CSS (글래스모피즘)
 │   └── js/dashboard.js      ← 대시보드 JavaScript (API 폴링, A05 테스트 UI)
 │
-├── tests/
-│   ├── conftest.py          ← pytest 환경 변수 사전 설정
-│   ├── test_app_health.py   ← 헬스 엔드포인트 테스트
-│   ├── test_dashboard.py    ← 대시보드·요약 API 테스트
-│   ├── test_detector_policy.py ← WAF 탐지 정책 유닛 테스트
-│   ├── test_traffic_log.py  ← 트래픽 로그 기록·집계 테스트
-│   └── test_proxy_rewrite.py ← URL 리라이트 로직 테스트
+├── verification/            ← 자동 검증 스위트 (pytest.ini → testpaths)
+│   ├── conftest.py          ← 환경 변수 사전 설정
+│   ├── app_health.py        ← 헬스 엔드포인트
+│   ├── waf_dashboard.py     ← 대시보드·요약 API
+│   ├── detector_policy.py   ← WAF 탐지 정책
+│   ├── traffic_recorder.py  ← 트래픽 로그 기록·집계
+│   ├── proxy_rewrite.py     ← URL 리라이트
+│   ├── waf_block_page.py    ← 차단 HTML/JSON 분기
+│   └── a05_login_sqli.py    ← A05 로그인 SQLi
 │
 ├── docs/                    ← 팀 문서 (PLAN, ROADMAP, TESTING 등)
 ├── docker-compose.yml       ← Juice Shop 컨테이너 실행 설정
@@ -175,7 +179,7 @@ ai-security-system/
 4. `parse_severity()` — 환경 변수 `"high"` 문자열을 내부 enum으로 변환
 
 **왜 main.py 안에 합치지 않고 따로 있냐면:**  
-→ "스캔 로직"과 "HTTP 처리 로직"을 분리해야 테스트·수정이 쉬워지기 때문. `test_detector_policy.py`에서 HTTP 서버 없이도 스캔 로직만 단독 테스트 가능.
+→ "스캔 로직"과 "HTTP 처리 로직"을 분리해야 검증·수정이 쉬워지기 때문. `verification/detector_policy.py`에서 HTTP 서버 없이도 스캔 로직만 단독 검증 가능.
 
 ---
 
@@ -431,11 +435,11 @@ WAF 대시보드의 **HTML 뼈대**. Jinja2 템플릿 문법으로 서버에서 
 
 ---
 
-### 🧪 `tests/` 파일들
+### 🧪 `verification/` 파일들
 
 ---
 
-#### `tests/conftest.py` — "테스트 준비방"
+#### `verification/conftest.py` — "실행 전 환경 고정"
 
 ```
 비유: 시험 시작 전 OMR 카드를 나눠주고 이름 쓰는 준비 시간
@@ -446,7 +450,7 @@ pytest가 테스트를 실행하기 **가장 먼저** 이 파일을 실행하여
 
 ---
 
-#### `tests/test_app_health.py` — "기본 작동 확인"
+#### `verification/app_health.py` — "기본 작동 확인"
 
 ```
 비유: 전원 켜고 파워 LED 불 들어오는지 확인
@@ -456,7 +460,7 @@ pytest가 테스트를 실행하기 **가장 먼저** 이 파일을 실행하여
 
 ---
 
-#### `tests/test_dashboard.py` — "대시보드 화면 테스트"
+#### `verification/waf_dashboard.py` — "대시보드·API"
 
 ```
 비유: 자동차 계기판 모든 램프가 제대로 켜지는지 점검
@@ -471,7 +475,7 @@ pytest가 테스트를 실행하기 **가장 먼저** 이 파일을 실행하여
 
 ---
 
-#### `tests/test_detector_policy.py` — "차단 정책 로직 테스트"
+#### `verification/detector_policy.py` — "차단 정책 로직"
 
 ```
 비유: 저울이 정확히 측정하는지 무게추로 검증
@@ -485,7 +489,7 @@ pytest가 테스트를 실행하기 **가장 먼저** 이 파일을 실행하여
 
 ---
 
-#### `tests/test_traffic_log.py` — "로그 기록 테스트"
+#### `verification/traffic_recorder.py` — "로그 기록"
 
 ```
 비유: 보안 카메라 녹화 기능 정상 작동 여부 확인
@@ -498,7 +502,7 @@ pytest가 테스트를 실행하기 **가장 먼저** 이 파일을 실행하여
 
 ---
 
-#### `tests/test_proxy_rewrite.py` — "URL 치환 정확성 테스트"
+#### `verification/proxy_rewrite.py` — "URL 치환 정확성"
 
 ```
 비유: 번역 결과물이 맞는지 역번역으로 검증
@@ -2510,27 +2514,27 @@ document.querySelectorAll(".a05-preset-btn").forEach((b) => {
 
 ---
 
-## 7. `tests/`
+## 7. `verification/`
 
 ---
 
-### 7.1 `tests/conftest.py`
+### 7.1 `verification/conftest.py`
 
 ```python
-"""Pytest loads this first — set env before `main` reads UPSTREAM_URL."""
+"""검증 스위트: `main` import 전 환경 변수 고정."""
 
 import os
 os.environ.setdefault("UPSTREAM_URL", "http://127.0.0.1:3001")
 os.environ.setdefault("WAF_ENABLED", "true")
 os.environ.setdefault("WAF_BLOCK_MIN_SEVERITY", "high")
 ```
-→ pytest가 가장 먼저 실행하는 설정 파일. `conftest.py`는 pytest 관례.  
+→ pytest가 `verification/` 수집 시 로드하는 설정 파일. `conftest.py`는 pytest 관례.  
 → `os.environ.setdefault()`: 이미 설정된 환경 변수는 덮어쓰지 않음 (CI 환경 변수 우선).  
 → `main.py`를 임포트하기 전에 환경 변수를 설정해야 `raise SystemExit` 방지.
 
 ---
 
-### 7.2 `tests/test_app_health.py`
+### 7.2 `verification/app_health.py`
 
 ```python
 def test_proxy_health_ok() -> None:
@@ -2547,7 +2551,7 @@ def test_proxy_health_ok() -> None:
 
 ---
 
-### 7.3 `tests/test_dashboard.py`
+### 7.3 `verification/waf_dashboard.py`
 
 **주요 테스트들:**
 
@@ -2582,7 +2586,7 @@ def test_waf_unknown_path_json_404() -> None:
 
 ---
 
-### 7.4 `tests/test_detector_policy.py`
+### 7.4 `verification/detector_policy.py`
 
 ```python
 def test_parse_severity_default_and_valid() -> None:
@@ -2616,7 +2620,7 @@ def test_all_findings_flattens_modules() -> None:
 
 ---
 
-### 7.5 `tests/test_traffic_log.py`
+### 7.5 `verification/traffic_recorder.py`
 
 ```python
 def _fake_request(path: str) -> Request:
@@ -2661,7 +2665,7 @@ def test_waf_paths_not_logged() -> None:
 
 ---
 
-### 7.6 `tests/test_proxy_rewrite.py`
+### 7.6 `verification/proxy_rewrite.py`
 
 ```python
 def test_rewrite_location_to_public_origin() -> None:

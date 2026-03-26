@@ -1,8 +1,8 @@
 # 테스트 가이드
 
-## 1. 자동 테스트 (pytest)
+## 1. 자동 검증 (pytest)
 
-업스트림(Juice Shop 등) **없이** 돌아가는 테스트와, 앱 import 시 필요한 최소 설정만 사용한다.
+업스트림(Juice Shop 등) **없이** 돌아가는 검증과, 앱 import 시 필요한 최소 설정만 사용한다. 스위트는 **`verification/`** 에 있으며, 루트 **`pytest.ini`** 가 수집 경로를 지정한다.
 
 ```bash
 cd /path/to/ai-security-system
@@ -14,8 +14,8 @@ python3 -m pytest -q
 
 (`pytest: command not found` 이면 위처럼 `python3 -m pytest` 를 쓰면 됩니다.)
 
-- `tests/test_detector_policy.py` — 차단 심각도·finding 집계 로직
-- `tests/test_app_health.py` — `GET /__proxy/health` 가 200·JSON 키 반환
+- `verification/detector_policy.py` — 차단 심각도·finding 집계 로직
+- `verification/app_health.py` — `GET /__proxy/health` 가 200·JSON 키 반환
 
 ---
 
