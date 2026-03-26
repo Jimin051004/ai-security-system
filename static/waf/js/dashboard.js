@@ -143,6 +143,95 @@ async function loadSummary() {
     if (el) el.innerHTML = '<span class="pill bad">API 오류</span>';
   }
 }
+// ── A05 Injection 테스트 패널 ──────────────────────────────────────────────
+const SEV_ORDER = { critical: 4, high: 3, medium: 2, low: 1, none: 0 };
+const SEV_CLASS = { critical: "sev-critical", high: "sev-high", medium: "sev-medium", low: "sev-low" };
+const SEV_LABEL = { critical: "CRITICAL", high: "HIGH", medium: "MEDIUM", low: "LOW" };
+
+function renderA05Result(data) {
+  const box = document.getElementById("a05-result");
+  if (!box) return;
+  box.hidden = false;
+
+  const blocked = data.blocked;
+  const total = data.total || 0;
+
+  let header = `<div class="a05-verdict ${blocked ? "verdict-blocked" : "verdict-clean"}">`;
+  if (total === 0) {
+    header += `<span class="a05-verdict-icon">✅</span><span class="a05-verdict-text">탐지 없음 — 정상 요청</span>`;
+  } else {
+    header += `<span class="a05-verdict-icon">${blocked ? "🚨" : "⚠️"}</span>`;
+    header += `<span class="a05-verdict-text">${blocked ? "차단 대상" : "경고"} — ${total}개 규칙 탐지</span>`;
+  }
+  header += `</div>`;
+
+  let rows = "";
+  const sorted = (data.findings || []).slice().sort(
+    (a, b) => (SEV_ORDER[b.severity] || 0) - (SEV_ORDER[a.severity] || 0)
+  );
+  for (const f of sorted) {
+    const cls = SEV_CLASS[f.severity] || "";
+    const lbl = SEV_LABEL[f.severity] || f.severity.toUpperCase();
+    rows += `<tr>
+      <td><span class="sev-badge ${cls}">${escapeHtml(lbl)}</span></td>
+      <td class="rule-id">${escapeHtml(f.rule_id)}</td>
+      <td class="evidence-cell">${escapeHtml(f.evidence)}</td>
+    </tr>`;
+  }
+
+  const table = total > 0
+    ? `<div class="traffic-feed a05-findings-feed">
+        <table class="traffic-table">
+          <thead><tr><th>심각도</th><th>규칙 ID</th><th>탐지 근거 / 증거</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+       </div>`
+    : "";
+
+  box.innerHTML = header + table;
+}
+
+async function runA05Scan() {
+  const btn = document.getElementById("a05-run");
+  const box = document.getElementById("a05-result");
+  if (btn) { btn.disabled = true; btn.textContent = "…스캔 중"; }
+  if (box) { box.hidden = false; box.innerHTML = '<p class="a05-loading">스캔 중…</p>'; }
+
+  const method = document.getElementById("a05-method")?.value || "GET";
+  const path   = document.getElementById("a05-path")?.value  || "/";
+  const query  = document.getElementById("a05-query")?.value || "";
+  const body   = document.getElementById("a05-body")?.value  || "";
+
+  try {
+    const r = await fetch("/__waf/api/scan/a05", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ method, path, query, body, headers: {} }),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    renderA05Result(await r.json());
+  } catch (err) {
+    if (box) box.innerHTML = `<p class="a05-error">오류: ${escapeHtml(String(err))}</p>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "▶ 탐지 실행"; }
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const btn = document.getElementById("a05-run");
+  if (btn) btn.addEventListener("click", runA05Scan);
+
+  // 빠른 테스트 프리셋 버튼
+  document.querySelectorAll(".a05-preset-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      const q = document.getElementById("a05-query");
+      const body = document.getElementById("a05-body");
+      if (q) q.value = b.dataset.query || "";
+      if (body) body.value = b.dataset.body || "";
+    });
+  });
+});
+
 setClock();
 setInterval(setClock, 1000);
 (function bootFromDom() {

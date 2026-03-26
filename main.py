@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request, Response
 from starlette.datastructures import MutableHeaders
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from detector import (
     all_findings,
@@ -409,6 +410,47 @@ async def dashboard_legacy_redirect() -> RedirectResponse:
 @app.get("/dashboard/")
 async def dashboard_legacy_redirect_slash() -> RedirectResponse:
     return RedirectResponse(url=f"{WAF_UI_PREFIX}/dashboard", status_code=307)
+
+
+# ── A05 Injection 테스트 API ───────────────────────────────────────────────
+
+class _A05ScanRequest(BaseModel):
+    method: str = "GET"
+    path: str = "/"
+    query: str = ""
+    body: str = ""
+    headers: dict[str, str] = {}
+
+
+@app.post("/__waf/api/scan/a05")
+async def waf_scan_a05(req: _A05ScanRequest) -> dict:
+    from owasp import a05 as _a05
+    from owasp.types import RequestContext
+
+    ctx = RequestContext(
+        method=req.method.upper(),
+        path=req.path,
+        query_string=req.query,
+        headers=req.headers,
+        body_preview=req.body,
+    )
+    result = await _a05.scan(ctx)
+    findings = [
+        {
+            "rule_id": f.rule_id,
+            "severity": f.severity.value,
+            "evidence": f.evidence,
+        }
+        for f in result.findings
+    ]
+    return {
+        "owasp_id": result.owasp_id,
+        "total": len(findings),
+        "blocked": any(
+            f["severity"] in ("critical", "high") for f in findings
+        ),
+        "findings": findings,
+    }
 
 
 @app.api_route("/", methods=METHODS)
