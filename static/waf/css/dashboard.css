@@ -460,6 +460,37 @@ body::before {
   font-size: 0.7rem;
   color: var(--text-dim);
 }
+.clients-big {
+  margin: 0 0 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+}
+.clients-big #clients-count {
+  font-size: 2.25rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #93c5fd, #c4b5fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.clients-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.clients-sub {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+#clients-updated {
+  margin-top: 0.5rem;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
 @media (max-width: 768px) {
   .app { flex-direction: column; }
   .sidebar {

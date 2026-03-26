@@ -280,6 +280,11 @@ async def waf_api_traffic() -> dict[str, Any]:
     return {"status": "ok", "events": events}
 
 
+@app.get("/__waf/api/clients")
+async def waf_api_clients() -> dict[str, Any]:
+    return await traffic_log.clients_snapshot()
+
+
 # `/__waf/{waf_tail:path}` 보다 먼저 등록해야 정적 파일이 404로 가지 않음
 _WAF_STATIC_DIR = _BASE / "static" / "waf"
 app.mount(

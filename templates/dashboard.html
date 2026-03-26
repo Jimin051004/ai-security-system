@@ -61,7 +61,7 @@
         <div class="welcome">
           <div class="welcome-avatar" aria-hidden="true">🤖</div>
           <p>
-            업스트림 연결 상태와 WAF 설정을 여기서 확인할 수 있습니다. 요약 카드는 약 15초마다, <strong>프록시 접속 로그</strong>는 약 2초마다 갱신됩니다.
+            업스트림 연결 상태와 WAF 설정을 여기서 확인할 수 있습니다. 요약 카드는 약 15초마다, <strong>접속자·접속 로그</strong>는 약 2초마다 갱신됩니다.
             타깃 앱은 <code style="background:rgba(0,0,0,.25);padding:0.1em 0.35em;border-radius:4px;font-size:0.85em;">UPSTREAM_URL</code>만 바꿔 교체하면 됩니다.
           </p>
         </div>
@@ -85,6 +85,33 @@
           <div class="card">
             <h2>본문 프리뷰 최대</h2>
             <p id="body-preview">…</p>
+          </div>
+          <div class="card card-wide">
+            <h2>프록시 접속자 (고유 IP)</h2>
+            <p class="traffic-meta">
+              <strong>업스트림으로 요청을 보낸 클라이언트</strong>만 집계합니다 (대시보드·정적 경로 제외). 같은 공유기(NAT) 뒤에서는 IP가 하나로 보일 수 있습니다.
+            </p>
+            <p class="clients-big" aria-live="polite">
+              <span id="clients-count">0</span><span class="clients-label">명</span>
+              <span class="clients-sub" id="clients-requests-total"></span>
+            </p>
+            <div class="traffic-feed">
+              <table class="traffic-table">
+                <thead>
+                  <tr>
+                    <th>Client IP</th>
+                    <th>요청 수</th>
+                    <th>첫 접속 (UTC)</th>
+                    <th>마지막 (UTC)</th>
+                    <th>최근 User-Agent</th>
+                  </tr>
+                </thead>
+                <tbody id="clients-feed-body">
+                  <tr><td colspan="5" class="traffic-empty">불러오는 중…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p id="clients-updated"></p>
           </div>
           <div class="card card-wide">
             <h2>이번 접속 · HTTP 메타 (프록시가 본 요청)</h2>

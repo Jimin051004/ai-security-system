@@ -39,6 +39,21 @@ test -f .env || cp .env.example .env
 1. **Juice Shop** (Docker): **`docker compose -f docker-compose.yml up -d`** — 호스트 포트 **`3001:3000`** (`http://127.0.0.1:3001`). `docker compose up` 만 쓰면 `compose.yaml` 등과 **병합**될 수 있다. 자세한 점검은 [docs/JUICE_SHOP_NETWORK_SETUP.md](docs/JUICE_SHOP_NETWORK_SETUP.md) §4.
 2. **프록시:** (위에서 `activate` 한 상태에서) `python3 -m uvicorn main:app --host 0.0.0.0 --port 8080 --reload` → 팀원은 `http://<이-Mac-LAN-IP>:8080/` , 헬스: `/__proxy/health` (`.env` 의 `WAF_*`). 타깃은 **`UPSTREAM_URL`만** 바꿔 교체.
 
+### LAN에서 팀원과 같이 쓸 때 (명령어)
+
+**서버 역할 맥**에서 프로젝트 폴더로 이동한 뒤:
+
+```bash
+cd /path/to/ai-security-system
+source system/bin/activate
+docker compose -f docker-compose.yml up -d
+python3 -m uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+```
+
+- 팀원 브라우저: **`http://<서버-Mac-LAN-IP>:8080/`** (프록시 경유 타깃 앱) · 대시보드: **`http://<IP>:8080/__waf/dashboard`** (고유 IP 접속자 수·로그).
+- 이 Mac의 IP: **시스템 설정 → 네트워크** 또는 터미널 `ipconfig getifaddr en0` (Wi‑Fi가 `en0`일 때).
+- 맥 방화벽에서 **8080 수신 허용**이 필요할 수 있음.
+
 **대시보드 UI 파일:** `templates/dashboard.html` · 스타일 `static/waf/css/dashboard.css` · 스크립트 `static/waf/js/dashboard.js` (`/__waf/static/...` 로 제공).
 
 **같은 Wi‑Fi의 다른 사람이 접속**해 공격·데모할 때는 [docs/JUICE_SHOP_NETWORK_SETUP.md](docs/JUICE_SHOP_NETWORK_SETUP.md) 를 본다.

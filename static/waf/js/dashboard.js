@@ -95,6 +95,59 @@ async function loadTraffic() {
     if (foot) foot.textContent = "로그 API 오류";
   }
 }
+function renderClients(data) {
+  const n = document.getElementById("clients-count");
+  const sub = document.getElementById("clients-requests-total");
+  const body = document.getElementById("clients-feed-body");
+  if (!n || !body) return;
+  const list = data.clients || [];
+  const uniq = Number(data.unique_clients) || 0;
+  n.textContent = String(uniq);
+  let totalReq = 0;
+  for (let i = 0; i < list.length; i++) {
+    totalReq += Number(list[i].requests) || 0;
+  }
+  if (sub) {
+    sub.textContent =
+      uniq > 0 ? "· 누적 프록시 요청 " + totalReq + "회 (표시 중인 IP 기준)" : "";
+  }
+  if (!list.length) {
+    body.innerHTML =
+      '<tr><td colspan="5" class="traffic-empty">아직 업스트림으로 나간 요청이 없습니다. 팀원은 <code>' +
+      window.location.origin +
+      '/</code> 로 접속하면 IP가 잡힙니다.</td></tr>';
+    return;
+  }
+  body.innerHTML = list
+    .map(
+      (c) =>
+        "<tr><td>" +
+        escapeHtml(c.client_ip) +
+        "</td><td>" +
+        escapeHtml(String(c.requests)) +
+        "</td><td>" +
+        escapeHtml(String(c.first_seen)) +
+        "</td><td>" +
+        escapeHtml(String(c.last_seen)) +
+        '</td><td class="col-ua">' +
+        escapeHtml(String(c.user_agent || "—")) +
+        "</td></tr>"
+    )
+    .join("");
+}
+async function loadClients() {
+  const foot = document.getElementById("clients-updated");
+  try {
+    const r = await fetch("/__waf/api/clients");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    renderClients(await r.json());
+    if (foot) {
+      foot.textContent = "접속자 갱신: " + new Date().toLocaleString("ko-KR");
+    }
+  } catch (err) {
+    if (foot) foot.textContent = "접속자 API 오류";
+  }
+}
 async function loadSummary() {
   try {
     const r = await fetch("/__waf/api/summary");
@@ -119,11 +172,15 @@ setInterval(setClock, 1000);
 document.getElementById("btn-refresh").addEventListener("click", () => {
   loadSummary();
   loadTraffic();
+  loadClients();
 });
 document.getElementById("btn-refresh-2").addEventListener("click", () => {
   loadSummary();
   loadTraffic();
+  loadClients();
 });
 setInterval(loadSummary, 15000);
 loadTraffic();
 setInterval(loadTraffic, 2000);
+loadClients();
+setInterval(loadClients, 2000);

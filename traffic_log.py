@@ -6,6 +6,7 @@ import asyncio
 from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from starlette.requests import Request
 
@@ -25,6 +26,9 @@ class TrafficEvent:
 
 
 _EVENTS: deque[TrafficEvent] = deque(maxlen=MAX_EVENTS)
+
+# 고유 클라이언트(IP 기준) — 프록시 업스트림 요청과 동일 조건으로만 증가
+_CLIENT_AGG: dict[str, dict[str, str | int]] = {}
 
 
 def _client_ip(request: Request) -> str:
@@ -47,6 +51,7 @@ def should_log_path(path: str) -> bool:
 def clear() -> None:
     """테스트용 초기화."""
     _EVENTS.clear()
+    _CLIENT_AGG.clear()
 
 
 async def record(request: Request, *, status_code: int, blocked: bool) -> None:
@@ -55,9 +60,11 @@ async def record(request: Request, *, status_code: int, blocked: bool) -> None:
     ua = request.headers.get("user-agent") or "—"
     if len(ua) > 220:
         ua = ua[:217] + "…"
+    time_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cip = _client_ip(request)
     ev = TrafficEvent(
-        time_iso=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        client_ip=_client_ip(request),
+        time_iso=time_iso,
+        client_ip=cip,
         method=request.method.upper(),
         path=request.url.path or "/",
         user_agent=ua,
@@ -66,8 +73,29 @@ async def record(request: Request, *, status_code: int, blocked: bool) -> None:
     )
     async with _LOCK:
         _EVENTS.append(ev)
+        row = _CLIENT_AGG.get(cip)
+        if row is None:
+            _CLIENT_AGG[cip] = {
+                "first_seen": time_iso,
+                "last_seen": time_iso,
+                "requests": 1,
+                "user_agent": ua,
+            }
+        else:
+            row["last_seen"] = time_iso
+            row["requests"] = int(row["requests"]) + 1
+            row["user_agent"] = ua
 
 
 async def snapshot_dicts() -> list[dict[str, str | int | bool]]:
     async with _LOCK:
         return [asdict(e) for e in reversed(_EVENTS)]
+
+
+async def clients_snapshot() -> dict[str, Any]:
+    async with _LOCK:
+        items: list[dict[str, Any]] = []
+        for ip, row in _CLIENT_AGG.items():
+            items.append({"client_ip": ip, **dict(row)})
+        items.sort(key=lambda x: str(x.get("last_seen", "")), reverse=True)
+        return {"status": "ok", "unique_clients": len(items), "clients": items}

@@ -66,3 +66,28 @@ def test_waf_paths_not_logged() -> None:
     client.get("/__waf/api/summary")
     r = client.get("/__waf/api/traffic")
     assert r.json()["events"] == []
+
+
+def test_clients_aggregation_same_ip() -> None:
+    traffic_log.clear()
+
+    async def run() -> None:
+        await traffic_log.record(_fake_request("/a"), status_code=200, blocked=False)
+        await traffic_log.record(_fake_request("/b"), status_code=200, blocked=False)
+
+    asyncio.run(run())
+    snap = asyncio.run(traffic_log.clients_snapshot())
+    assert snap["unique_clients"] == 1
+    assert snap["clients"][0]["requests"] == 2
+    assert snap["clients"][0]["client_ip"] == "203.0.113.9"
+
+
+def test_clients_api_json() -> None:
+    traffic_log.clear()
+    client = TestClient(app)
+    r = client.get("/__waf/api/clients")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "ok"
+    assert data["unique_clients"] == 0
+    assert data["clients"] == []
