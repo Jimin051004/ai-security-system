@@ -408,6 +408,66 @@
       font-size: 0.75rem;
       color: var(--text-dim);
     }
+    .traffic-meta {
+      margin: 0 0 0.65rem;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      line-height: 1.45;
+    }
+    .traffic-feed {
+      max-height: 22rem;
+      overflow: auto;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--glass-border);
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .traffic-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.74rem;
+    }
+    .traffic-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: 0.45rem 0.5rem;
+      text-align: left;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 0.65rem;
+      background: rgba(15, 20, 32, 0.95);
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .traffic-table tbody td {
+      padding: 0.4rem 0.5rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      vertical-align: top;
+      line-height: 1.35;
+    }
+    .traffic-table .col-path {
+      font-family: ui-monospace, "SF Mono", Consolas, monospace;
+      font-size: 0.7rem;
+      word-break: break-all;
+      max-width: 14rem;
+    }
+    .traffic-table .col-ua {
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      word-break: break-word;
+      max-width: 18rem;
+    }
+    .traffic-empty {
+      color: var(--text-dim);
+      text-align: center;
+      padding: 1rem !important;
+    }
+    #traffic-updated {
+      margin-top: 0.5rem;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+    }
     @media (max-width: 768px) {
       .app { flex-direction: column; }
       .sidebar {
@@ -477,7 +537,7 @@
         <div class="welcome">
           <div class="welcome-avatar" aria-hidden="true">🤖</div>
           <p>
-            업스트림 연결 상태와 WAF 설정을 여기서 확인할 수 있습니다. 아래 카드는 약 15초마다 자동으로 갱신됩니다.
+            업스트림 연결 상태와 WAF 설정을 여기서 확인할 수 있습니다. 요약 카드는 약 15초마다, <strong>프록시 접속 로그</strong>는 약 2초마다 갱신됩니다.
             타깃 앱은 <code style="background:rgba(0,0,0,.25);padding:0.1em 0.35em;border-radius:4px;font-size:0.85em;">UPSTREAM_URL</code>만 바꿔 교체하면 됩니다.
           </p>
         </div>
@@ -519,6 +579,30 @@
               <div class="access-row"><dt>Accept-Language</dt><dd id="acc-lang">{% if access %}{{ access.accept_language }}{% else %}…{% endif %}</dd></div>
               <div class="access-row"><dt>User-Agent</dt><dd id="acc-ua">{% if access %}{{ access.user_agent }}{% else %}…{% endif %}</dd></div>
             </dl>
+          </div>
+          <div class="card card-wide">
+            <h2>실시간 프록시 접속 로그</h2>
+            <p class="traffic-meta">
+              <strong>업스트림으로 전달·차단된 요청</strong>만 표시합니다. <code>/__waf/*</code>·<code>/__proxy/*</code>는 제외되어 대시보드 폴링이 목록을 채우지 않습니다. 최대 200건까지 메모리에 보관합니다.
+            </p>
+            <div class="traffic-feed">
+              <table class="traffic-table">
+                <thead>
+                  <tr>
+                    <th>시각 (UTC)</th>
+                    <th>Client IP</th>
+                    <th>Method</th>
+                    <th>Path</th>
+                    <th>결과</th>
+                    <th>User-Agent</th>
+                  </tr>
+                </thead>
+                <tbody id="traffic-feed-body">
+                  <tr><td colspan="6" class="traffic-empty">불러오는 중…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p id="traffic-updated"></p>
           </div>
         </div>
         <div class="actions">
@@ -577,6 +661,57 @@
       d.textContent = s;
       return d.innerHTML;
     }
+    function trafficResultHtml(e) {
+      if (e.blocked) {
+        return '<span class="pill bad">WAF 차단</span>';
+      }
+      const c = Number(e.status_code);
+      if (c >= 200 && c < 400) {
+        return '<span class="pill ok">' + escapeHtml(String(c)) + "</span>";
+      }
+      return '<span class="pill bad">' + escapeHtml(String(c)) + "</span>";
+    }
+    function renderTraffic(events) {
+      const body = document.getElementById("traffic-feed-body");
+      if (!body) return;
+      if (!events || !events.length) {
+        body.innerHTML =
+          '<tr><td colspan="6" class="traffic-empty">아직 기록이 없습니다. 다른 탭에서 <code>http://127.0.0.1:8080/</code> 등 <strong>프록시 경유</strong>로 접속해 보세요.</td></tr>';
+        return;
+      }
+      body.innerHTML = events
+        .map(
+          (e) =>
+            "<tr><td>" +
+            escapeHtml(e.time_iso) +
+            "</td><td>" +
+            escapeHtml(e.client_ip) +
+            "</td><td>" +
+            escapeHtml(e.method) +
+            '</td><td class="col-path">' +
+            escapeHtml(e.path) +
+            "</td><td>" +
+            trafficResultHtml(e) +
+            '</td><td class="col-ua">' +
+            escapeHtml(e.user_agent) +
+            "</td></tr>"
+        )
+        .join("");
+    }
+    async function loadTraffic() {
+      const foot = document.getElementById("traffic-updated");
+      try {
+        const r = await fetch("/__waf/api/traffic");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const data = await r.json();
+        renderTraffic(data.events || []);
+        if (foot) {
+          foot.textContent = "로그 갱신: " + new Date().toLocaleString("ko-KR");
+        }
+      } catch (err) {
+        if (foot) foot.textContent = "로그 API 오류";
+      }
+    }
     async function loadSummary() {
       try {
         const r = await fetch("/__waf/api/summary");
@@ -598,9 +733,17 @@
         console.error("WAF dashboard boot:", e);
       }
     })();
-    document.getElementById("btn-refresh").addEventListener("click", loadSummary);
-    document.getElementById("btn-refresh-2").addEventListener("click", loadSummary);
+    document.getElementById("btn-refresh").addEventListener("click", () => {
+      loadSummary();
+      loadTraffic();
+    });
+    document.getElementById("btn-refresh-2").addEventListener("click", () => {
+      loadSummary();
+      loadTraffic();
+    });
     setInterval(loadSummary, 15000);
+    loadTraffic();
+    setInterval(loadTraffic, 2000);
   </script>
 </body>
 </html>

@@ -21,6 +21,8 @@ from detector import (
 from owasp.types import Severity
 from request_snapshot import DEFAULT_BODY_PREVIEW_MAX, request_to_context
 
+import traffic_log
+
 UPSTREAM_RAW = os.environ.get("UPSTREAM_URL", "http://127.0.0.1:3001").rstrip("/")
 _parsed = urlparse(UPSTREAM_RAW)
 if not _parsed.scheme or not _parsed.netloc:
@@ -270,6 +272,12 @@ async def waf_api_summary_canonical(request: Request) -> dict[str, Any]:
     return await api_dashboard_summary(request)
 
 
+@app.get("/__waf/api/traffic")
+async def waf_api_traffic() -> dict[str, Any]:
+    events = await traffic_log.snapshot_dicts()
+    return {"status": "ok", "events": events}
+
+
 def _waf_unknown_path_response() -> JSONResponse:
     """`/__waf/*` 중 대시보드·요약 API가 아닌 경로 — 업스트림으로 넘기면 Juice Shop HTML이 먹힘."""
     return JSONResponse(
@@ -310,8 +318,11 @@ async def dashboard_legacy_redirect_slash() -> RedirectResponse:
 async def proxy_root(request: Request) -> Response:
     blocked = await _waf_response_or_none(request)
     if blocked is not None:
+        await traffic_log.record(request, status_code=403, blocked=True)
         return blocked
-    return await _forward(request, "")
+    resp = await _forward(request, "")
+    await traffic_log.record(request, status_code=resp.status_code, blocked=False)
+    return resp
 
 
 @app.api_route("/{full_path:path}", methods=METHODS)
@@ -330,5 +341,8 @@ async def proxy_path(full_path: str, request: Request) -> Response:
         return _waf_unknown_path_response()
     blocked = await _waf_response_or_none(request)
     if blocked is not None:
+        await traffic_log.record(request, status_code=403, blocked=True)
         return blocked
-    return await _forward(request, full_path)
+    resp = await _forward(request, full_path)
+    await traffic_log.record(request, status_code=resp.status_code, blocked=False)
+    return resp
