@@ -16,7 +16,7 @@
 
 1. **Juice Shop** (Docker): `cp .env.example .env` 후 **`docker compose -f docker-compose.yml up -d`** — 호스트 포트는 **`3001:3000`** (`http://127.0.0.1:3001`). `docker compose up` 만 쓰면 같은 디렉터리의 `compose.yaml` 등과 **병합**되어 다시 3000을 쓰려다 실패할 수 있다. 자세한 점검은 [docs/JUICE_SHOP_NETWORK_SETUP.md](docs/JUICE_SHOP_NETWORK_SETUP.md) §4.
 2. **가상환경·의존성:** `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
-3. **프록시(로컬만):** `cp .env.example .env` 후 `uvicorn main:app --host 127.0.0.1 --port 8080` → `http://127.0.0.1:8080` , 헬스: `/__proxy/health`
+3. **프록시(로컬만):** `cp .env.example .env` 후 `uvicorn main:app --host 127.0.0.1 --port 8080` → `http://127.0.0.1:8080` , 헬스: `/__proxy/health` (WAF on/off·차단 심각도는 `.env` 의 `WAF_*`). 타깃 앱은 **`UPSTREAM_URL`만** 바꿔 교체.
 
 **같은 Wi‑Fi의 다른 사람이 접속**해 공격·데모할 때는 [docs/JUICE_SHOP_NETWORK_SETUP.md](docs/JUICE_SHOP_NETWORK_SETUP.md) 를 본다.
 

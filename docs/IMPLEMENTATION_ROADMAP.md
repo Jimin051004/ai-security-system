@@ -6,30 +6,31 @@
 
 ## 현재까지 된 것
 
-- FastAPI 리버스 프록시 (`main.py`) → Juice Shop 등 업스트림으로 HTTP 전달
+- FastAPI 리버스 프록시 (`main.py`) → **`UPSTREAM_URL`** 로 지정한 **임의 업스트림**으로 HTTP 전달 (Juice Shop 전용 로직 없음)
+- **1단계 적용됨:** 요청 → `request_snapshot.request_to_context` → `detector.scan_request` → `WAF_BLOCK_MIN_SEVERITY` 이상이면 **403 JSON**, 아니면 업스트림 프록시
+- 환경 변수: `WAF_ENABLED`, `WAF_BLOCK_MIN_SEVERITY`, `WAF_BODY_PREVIEW_MAX` (`.env.example` 참고)
 - OWASP Top 10:2025용 모듈 10개 **파일·등록 구조** (`owasp/`, `MODULES`)
-- `detector.py`: 요청 스냅샷에 대해 10개 모듈을 순회하는 **`scan_request`** (아직 `main.py`와 연결 안 됨)
-- 각 모듈은 대부분 **스켈레톤**(실제 패턴 탐지 거의 없음)
+- `detector.py`: `scan_request`, `all_findings`, **차단 임계** `findings_at_or_above_severity`, `parse_severity`
+- 각 모듈은 대부분 **스켈레톤**(실제 패턴 탐지는 2단계에서) → 지금은 탐지가 거의 없어 대부분 통과
 - Docker·문서: `docs/JUICE_SHOP_NETWORK_SETUP.md` 등
 
 ---
 
-## 1단계: 요청 파이프라인에 탐지·차단 끼워 넣기 (최우선)
+## 1단계: 요청 파이프라인에 탐지·차단 끼워 넣기 — **구현 완료**
 
 ### 쉽게 말하면
 
-- **지금:** 브라우저 → **바로** Juice Shop(업스트림).
-- **목표:** 브라우저 → **문지기(WAF)**가 요청을 잠깐 봄 → 괜찮으면 Juice Shop, 이상하면 **여기서 차단**.
+- 브라우저 → **문지기(WAF)**가 요청을 잠깐 봄 → 정책상 차단이면 **403**, 아니면 **`UPSTREAM_URL`** 업스트림으로 프록시.
 
-### 코드 흐름 (할 일)
+### 코드 흐름 (반영된 위치)
 
-1. 들어온 `Request`에서 method, path, query, headers, body 일부(프리뷰·길이 제한)를 뽑아 **`RequestContext`**로 만든다.
-2. **`detector.scan_request(ctx)`** → **`all_findings(results)`** 를 호출한다.
-3. **정책**으로 통과/차단을 정한다.  
-   - 예: `Severity`가 HIGH 이상이면 업스트림 호출 없이 **403** + 간단한 응답.  
-   - 그 외는 기존처럼 **`_forward`** 로 프록시.
+1. `request_snapshot.py`: `Request` → **`RequestContext`** (method, path, query, headers, body 프리뷰)
+2. `detector.scan_request` → `all_findings`
+3. `findings_at_or_above_severity(..., WAF_BLOCK_MIN_SEVERITY)` → 있으면 **403** JSON (`blocked`, `findings`, …), 없으면 **`_forward`**
 
-이렇게 하면 [PLAN.md](./PLAN.md) §12의 *「탐지·차단이 하나의 요청 파이프라인에서 설명 가능」*에 맞는 첫 단계가 된다.
+**업스트림 교체:** `UPSTREAM_URL` 만 바꾸면 동일 WAF가 다른 오픈소스/사이트에 적용된다.
+
+이 구성은 [PLAN.md](./PLAN.md) §12의 *「탐지·차단이 하나의 요청 파이프라인에서 설명 가능」*에 맞는 첫 단계다.
 
 ---
 
@@ -75,3 +76,4 @@
 | 날짜 | 내용 |
 |------|------|
 | 2026-03-26 | 초안 — 파이프라인·모듈·로그·LLM·UI 순서로 정리 |
+| 2026-03-26 | 1단계 구현 반영 — `request_snapshot`·`main` WAF 게이트·`UPSTREAM_URL` 범용 |
