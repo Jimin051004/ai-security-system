@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WAF 대시보드</title>
+  <title>AI Security Agent</title>
   <meta name="color-scheme" content="dark" />
   <link rel="stylesheet" href="/__waf/static/css/dashboard.css" />
 </head>
@@ -16,11 +16,15 @@
       <div class="brand">
         <div class="brand-icon" aria-hidden="true">🛡</div>
         <div>
-          <div class="brand-text">WAF</div>
+          <div class="brand-text">AI Security Agent</div>
           <div class="brand-sub">Proxy</div>
         </div>
       </div>
-      <button type="button" class="btn-gradient" id="btn-refresh">↻ 갱신</button>
+      <button type="button" class="btn-gradient" id="btn-refresh" aria-label="요약·로그·통계 수동 갱신">↻ 갱신</button>
+      <label class="toggle-row">
+        <input type="checkbox" id="auto-refresh"/>
+        <span>자동 갱신 (2s 로그·KPI / 15s 요약)</span>
+      </label>
       <div>
         <div class="nav-label">이동</div>
         <a class="nav-item active" href="/__waf/dashboard" aria-current="page">대시보드</a>
@@ -31,21 +35,72 @@
     <div class="main">
       <header class="topbar">
         <span class="page-title">대시보드</span>
-        <span class="clock" id="clock"></span>
+        <span class="clock" id="clock" aria-live="polite"></span>
       </header>
       <div class="content">
         <div class="grid">
+          <div class="card card-wide card-kpi">
+            <div class="kpi-head">
+              <h2>차단 KPI <span class="kpi-sub">(메모리 버퍼 최대 200건)</span></h2>
+              <p class="kpi-lead" id="kpi-lead">프록시를 경유한 요청만 집계합니다.</p>
+            </div>
+            <div class="kpi-row" id="kpi-row" role="status" aria-label="차단 통계">
+              <div class="kpi-donut-shell" aria-hidden="true">
+                <div class="kpi-donut" id="kpi-donut"></div>
+                <div class="kpi-donut-center">
+                  <span class="kpi-donut-pct" id="kpi-donut-pct">0%</span>
+                  <span class="kpi-donut-label">차단 비율</span>
+                </div>
+              </div>
+              <div class="kpi-metrics">
+                <div class="kpi-block">
+                  <span class="kpi-num" id="kpi-total">0</span>
+                  <span class="kpi-label">로그 건수</span>
+                </div>
+                <div class="kpi-block">
+                  <span class="kpi-num kpi-bad" id="kpi-blocked">0</span>
+                  <span class="kpi-label">차단</span>
+                </div>
+                <div class="kpi-block">
+                  <span class="kpi-num" id="kpi-ratio">0%</span>
+                  <span class="kpi-label">차단 비율</span>
+                </div>
+                <div class="kpi-bar-wrap" aria-hidden="true">
+                  <div class="kpi-bar-track"><div class="kpi-bar-fill" id="kpi-bar-fill"></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="kpi-chips" id="kpi-chips" aria-label="상위 탐지 유형"></div>
+            <div class="kpi-top" id="kpi-top-attacks">상위 공격 유형: —</div>
+            <div class="kpi-top" id="kpi-top-rules">상위 규칙 ID: —</div>
+            <p id="stats-updated" class="feed-foot stats-foot"></p>
+          </div>
+          <div class="card card-highlight" id="last-block-card">
+            <h2>가장 최근 차단</h2>
+            <p id="last-block-body" class="last-block-body">아직 차단 기록이 없습니다.</p>
+            <button type="button" class="btn-ghost" id="btn-copy-last-block" hidden>요약 복사</button>
+          </div>
+          <div class="card">
+            <h2>프록시 공개 주소</h2>
+            <p id="proxy-public-origin" class="mono-stat">…</p>
+            <p class="card-sub">팀원 접속 시 브라우저에 보이는 이 주소로 안내하면 됩니다.</p>
+          </div>
+          <div class="card">
+            <h2>프로세스 기동 (KST)</h2>
+            <p id="process-started" class="mono-stat">…</p>
+            <p class="card-sub" id="process-started-hint">서버가 최신 코드면 갱신 직후 시각이 표시됩니다.</p>
+          </div>
           <div class="card">
             <h2>업스트림</h2>
             <p><a href="{{ upstream }}" target="_blank" rel="noopener">{{ upstream }}</a></p>
           </div>
           <div class="card">
             <h2>연결</h2>
-            <p id="upstream-status">…</p>
+            <p id="upstream-status" role="status" aria-live="polite">…</p>
           </div>
           <div class="card">
             <h2>WAF</h2>
-            <p id="waf-enabled">…</p>
+            <p id="waf-enabled" role="status">…</p>
           </div>
           <div class="card">
             <h2>차단 심각도</h2>
@@ -56,35 +111,24 @@
             <p id="body-preview-max" class="mono-stat">…</p>
           </div>
           <div class="card">
-            <h2>최근 로그</h2>
+            <h2>표시 중 로그</h2>
             <p class="traffic-mini-stat" aria-live="polite">
-              <span id="traffic-stat-total">0</span>건 중
+              <span id="traffic-stat-total">0</span>건 표시 ·
               <span class="stat-blocked"><span id="traffic-stat-blocked">0</span>건 차단</span>
             </p>
+            <p class="card-sub">필터로 걸러진 결과입니다.</p>
           </div>
           <div class="card card-wide">
-            <h2>OWASP 모듈</h2>
-            <div class="traffic-feed">
-              <table class="traffic-table traffic-table-compact">
-                <thead>
-                  <tr>
-                    <th>모듈</th>
-                    <th>OWASP</th>
-                    <th>제목</th>
-                  </tr>
-                </thead>
-                <tbody id="modules-feed-body">
-                  <tr><td colspan="3" class="traffic-empty">…</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <p id="modules-updated" class="feed-foot"></p>
+            <h2>환경 스냅샷 (읽기 전용)</h2>
+            <dl class="env-dl" id="env-snapshot"></dl>
           </div>
           <div class="card card-wide">
             <h2>탐지·차단 상세</h2>
             <p class="detections-hint">
               정책에 따라 차단된 요청만 표시합니다. OWASP 항목·인젝션 유형(SQLi 등)·탐지된 입력 위치(path / 쿼리 / 바디 등)와 규칙 ID를 한눈에 볼 수 있습니다.
+              <strong>상세(증거)</strong> 열은 펼쳐서 전체를 볼 수 있습니다.
             </p>
+            <p class="scroll-hint" role="note">표가 넓을 때는 아래 영역을 <strong>가로로 스크롤</strong>하세요.</p>
             <div class="traffic-feed traffic-feed-scroll">
               <table class="traffic-table traffic-table-detections">
                 <thead>
@@ -140,7 +184,31 @@
           </div>
           <div class="card card-wide">
             <h2>프록시 로그</h2>
-            <div class="traffic-feed">
+            <div class="log-toolbar">
+              <label>Method
+                <select id="filter-method" aria-label="HTTP 메서드 필터">
+                  <option value="">전체</option>
+                  <option>GET</option>
+                  <option>POST</option>
+                  <option>PUT</option>
+                  <option>PATCH</option>
+                  <option>DELETE</option>
+                  <option>OPTIONS</option>
+                  <option>HEAD</option>
+                </select>
+              </label>
+              <label class="chk-inline"><input type="checkbox" id="filter-blocked-only" /> 차단만</label>
+              <label>Path 포함
+                <input type="search" id="filter-path" placeholder="/api …" autocomplete="off" />
+              </label>
+              <label>IP 포함
+                <input type="search" id="filter-ip" placeholder="192.168…" autocomplete="off" />
+              </label>
+              <button type="button" class="btn-ghost" id="btn-export-json">로그 JSON보내기</button>
+              <button type="button" class="btn-ghost" id="btn-copy-json">버퍼 JSON 복사</button>
+            </div>
+            <p class="scroll-hint" role="note">가로 스크롤로 Path·User-Agent 전체를 확인할 수 있습니다.</p>
+            <div class="traffic-feed traffic-feed-scroll-x">
               <table class="traffic-table">
                 <thead>
                   <tr>
