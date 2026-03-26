@@ -7,6 +7,7 @@
 | 문서 | 설명 |
 |------|------|
 | [docs/PLAN.md](docs/PLAN.md) | 전체 계획서 |
+| [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) | 다음 구현 작업 순서 |
 | [docs/JUICE_SHOP_NETWORK_SETUP.md](docs/JUICE_SHOP_NETWORK_SETUP.md) | Juice Shop·Docker·LAN 데모 가이드 |
 
 목록만 보기: [docs/README.md](docs/README.md)

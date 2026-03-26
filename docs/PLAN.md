@@ -254,6 +254,8 @@ ai-security-system/
 
 ## 12. 성공 기준
 
+구현 순서·다음 작업 묶음은 [IMPLEMENTATION_ROADMAP.md](./IMPLEMENTATION_ROADMAP.md)를 본다.
+
 - [ ] **탐지·차단·대응·기록**이 하나의 요청 파이프라인에서 설명 가능하고 동작한다.  
 - [ ] 클라이언트 → WAF → 타겟으로 **실제 HTTP 트래픽**이 프록시된다.  
 - [ ] OWASP Top 10:**2025**에 대응하는 **모듈 10개**가 코드 구조상 분리·호출 가능하다.  
@@ -272,6 +274,7 @@ ai-security-system/
 | 2025-03-24 | 초안 작성 — 요구사항·아키텍처 통합 |
 | 2025-03-24 | OWASP Top 10 기준 **모듈 10개**로 재구성, 단계별 로드맵 제거 |
 | 2025-03-24 | **탐지·차단·대응·기록**을 최우선 원칙으로 명시; OWASP **Top 10:2025**로 전환 |
+| 2026-03-26 | §12에 [IMPLEMENTATION_ROADMAP.md](./IMPLEMENTATION_ROADMAP.md) 링크 추가 |
 
 ---
 
