@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from starlette.testclient import TestClient
 
+import traffic_log
 from main import app
 
 
@@ -18,7 +19,8 @@ def test_dashboard_canonical_200() -> None:
     assert "접속자" in r.text
     assert "프록시 로그" in r.text
     assert "modules-feed-body" in r.text
-    assert "scan-demo-form" in r.text
+    assert "detections-feed-body" in r.text
+    assert "탐지·차단 상세" in r.text
     assert "no-store" in r.headers.get("cache-control", "")
 
 
@@ -83,21 +85,24 @@ def test_waf_api_modules_lists_a05() -> None:
     assert a05.get("title") == "Injection"
 
 
-def test_waf_api_scan_demo_detects_sqli_in_query() -> None:
+def test_blocked_request_logs_enriched_findings_in_traffic_api() -> None:
+    traffic_log.clear()
     client = TestClient(app)
-    r = client.post(
-        "/__waf/api/scan-demo",
-        json={
-            "method": "GET",
-            "path": "/rest/products/search",
-            "query_string": "q=test' OR '1'='1",
-            "headers": {},
-            "body_preview": "",
-        },
-    )
-    assert r.status_code == 200
+    r = client.get("/api/x?q=test' OR '1'='1")
+    assert r.status_code == 403
     data = r.json()
-    assert data.get("status") == "ok"
-    assert data.get("findings_count", 0) >= 1
-    rule_ids = {f["rule_id"] for f in data.get("findings", [])}
-    assert any(r.startswith("A05-SQL") for r in rule_ids)
+    assert data.get("blocked") is True
+    findings = data.get("findings") or []
+    assert len(findings) >= 1
+    assert findings[0].get("owasp_id") == "A05:2025"
+    assert findings[0].get("category") == "Injection"
+    assert "SQL" in (findings[0].get("attack_type") or "")
+    tr = client.get("/__waf/api/traffic")
+    events = tr.json().get("events") or []
+    assert len(events) >= 1
+    top = events[0]
+    assert top.get("blocked") is True
+    bf = top.get("block_findings") or []
+    assert len(bf) >= 1
+    assert bf[0].get("rule_id", "").startswith("A05-SQL")
+    assert bf[0].get("location") not in (None, "")

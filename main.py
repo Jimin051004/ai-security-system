@@ -10,11 +10,9 @@ from urllib.parse import urlparse
 import httpx
 import jinja2
 from fastapi import FastAPI, Request, Response
-from pydantic import BaseModel, Field
 from starlette.datastructures import MutableHeaders
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 from detector import (
     all_findings,
@@ -23,7 +21,7 @@ from detector import (
     scan_request,
 )
 from owasp import MODULES
-from owasp.types import RequestContext, Severity
+from owasp.types import Finding, ModuleScanResult, Severity
 from request_snapshot import DEFAULT_BODY_PREVIEW_MAX, request_to_context
 
 import traffic_log
@@ -284,29 +282,143 @@ async def _forward(request: Request, full_path: str) -> Response:
     return _build_proxied_upstream_response(request, upstream)
 
 
-def _finding_to_json(f) -> dict[str, str]:
+def _module_for_rule(results: list[ModuleScanResult], rule_id: str) -> ModuleScanResult | None:
+    for r in results:
+        if any(x.rule_id == rule_id for x in r.findings):
+            return r
+    return None
+
+
+def _module_title(module_id: str) -> str:
+    for m in MODULES:
+        if m.module_id == module_id:
+            return m.title
+    return "—"
+
+
+def _attack_type_label(rule_id: str) -> str:
+    u = rule_id.upper()
+    if u.startswith("A05-SQL"):
+        return "SQL Injection"
+    if u.startswith("A05-CMD"):
+        return "OS Command Injection"
+    if u.startswith("A05-XSS"):
+        return "Cross-Site Scripting (XSS)"
+    if u.startswith("A05-LDAP"):
+        return "LDAP Injection"
+    if u.startswith("A05-XPATH"):
+        return "XPath Injection"
+    if u.startswith("A05-EL"):
+        return "Expression Language Injection"
+    if u.startswith("A05-SSTI"):
+        return "Server-Side Template Injection (SSTI)"
+    if u.startswith("A05-CRLF"):
+        return "CRLF Injection"
+    return "기타 / 규칙 기반 탐지"
+
+
+def _finding_enriched_dict(
+    results: list[ModuleScanResult],
+    f: Finding,
+    *,
+    evidence_max: int = 500,
+) -> dict[str, str]:
+    mod = _module_for_rule(results, f.rule_id)
+    owasp_id = mod.owasp_id if mod else "—"
+    category = _module_title(mod.module_id) if mod else "—"
     ev = f.evidence
-    if len(ev) > 500:
-        ev = ev[:500] + "…"
-    return {"rule_id": f.rule_id, "severity": f.severity.value, "evidence": ev}
+    if len(ev) > evidence_max:
+        ev = ev[: evidence_max - 1] + "…"
+    return {
+        "owasp_id": owasp_id,
+        "category": category,
+        "attack_type": _attack_type_label(f.rule_id),
+        "rule_id": f.rule_id,
+        "severity": f.severity.value,
+        "location": f.location or "—",
+        "evidence": ev,
+    }
 
 
-async def _waf_response_or_none(request: Request) -> Response | None:
-    """Run OWASP modules; return 403 HTML block page if policy says block, else None (allow)."""
+def _blocking_payload_dict(
+    results: list[ModuleScanResult],
+    blocking: list[Finding],
+    min_sev: Severity,
+) -> dict[str, Any]:
+    return {
+        "blocked": True,
+        "policy": "min_severity",
+        "min_severity": min_sev.value,
+        "upstream": UPSTREAM_BASE,
+        "findings": [_finding_enriched_dict(results, f) for f in blocking],
+    }
+
+
+def _prefer_waf_block_html(request: Request) -> bool:
+    """브라우저 문서 탐색·일반 접속은 HTML+alert, Juice Shop API(XHR)는 JSON 유지."""
+    fmt = (request.query_params.get("__waf_block_format") or "").lower()
+    if fmt == "json":
+        return False
+    if fmt == "html":
+        return True
+    if (request.headers.get("x-requested-with") or "").lower() == "xmlhttprequest":
+        return False
+    dest = (request.headers.get("sec-fetch-dest") or "").lower()
+    if dest == "document":
+        return True
+    accept = (request.headers.get("accept") or "*/*").lower()
+    parts = [p.strip().split(";")[0].strip() for p in accept.split(",") if p.strip()]
+    if parts and parts[0] == "application/json":
+        return False
+    return True
+
+
+def _waf_blocked_html_response(payload: dict[str, Any]) -> HTMLResponse:
+    rows: list[dict[str, str]] = list(payload.get("findings") or [])
+    if not rows:
+        alert_message = "[WAF 차단] 위협이 탐지되어 요청이 차단되었습니다."
+    elif len(rows) == 1:
+        f0 = rows[0]
+        alert_message = (
+            f"[WAF 차단] {f0.get('owasp_id', '—')} · {f0.get('category', '—')}\n"
+            f"{f0.get('attack_type', '—')}이(가) 확인되어 차단되었습니다.\n"
+            f"규칙: {f0.get('rule_id', '—')} · 위치: {f0.get('location', '—')}"
+        )
+    else:
+        f0 = rows[0]
+        alert_message = (
+            f"[WAF 차단] {len(rows)}건의 취약점 패턴이 탐지되어 차단되었습니다.\n"
+            f"대표: {f0.get('owasp_id', '—')} — {f0.get('attack_type', '—')} "
+            f"외 {len(rows) - 1}건"
+        )
+    tpl = _jinja_env.get_template("waf_blocked.html")
+    html = tpl.render(rows=rows, boot={"alert_message": alert_message})
+    return HTMLResponse(
+        content=html,
+        status_code=403,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def _run_waf_gate(
+    request: Request,
+) -> tuple[Response | None, list[ModuleScanResult], list[Finding]]:
+    """스캔 후 차단이면 403 응답과 함께 탐지 목록을 반환. 통과면 (None, results, [])."""
     if not _waf_enabled():
-        return None
+        return None, [], []
     ctx = await request_to_context(request, body_preview_max=_body_preview_max())
     results = await scan_request(ctx)
     findings = all_findings(results)
     min_sev = _waf_block_min_severity()
     blocking = findings_at_or_above_severity(findings, min_sev)
     if not blocking:
-        return None
-    from owasp.a05 import make_block_html
-    return HTMLResponse(
-        content=make_block_html(tuple(blocking)),
-        status_code=403,
-    )
+        return None, results, []
+    payload = _blocking_payload_dict(results, blocking, min_sev)
+    if _prefer_waf_block_html(request):
+        blocked: Response = _waf_blocked_html_response(payload)
+    else:
+        blocked = JSONResponse(status_code=403, content=payload)
+    return blocked, results, blocking
 
 
 @app.get("/__proxy/health")
@@ -377,45 +489,6 @@ async def waf_api_modules() -> dict[str, Any]:
     }
 
 
-class _ScanDemoBody(BaseModel):
-    """대시보드에서 WAF 규칙을 시험할 때 사용 (실제 프록시 요청과 동일한 RequestContext)."""
-
-    method: str = "GET"
-    path: str = "/"
-    query_string: str = ""
-    headers: dict[str, str] = Field(default_factory=dict)
-    body_preview: str = ""
-
-
-@app.post("/__waf/api/scan-demo")
-async def waf_api_scan_demo(body: _ScanDemoBody) -> dict[str, Any]:
-    max_b = _body_preview_max()
-    preview = (body.body_preview or "")[:max_b]
-    headers = {k.lower(): v for k, v in (body.headers or {}).items()}
-    ctx = RequestContext(
-        method=(body.method or "GET").upper(),
-        path=body.path or "/",
-        query_string=body.query_string or "",
-        headers=headers,
-        body_preview=preview,
-    )
-    results = await scan_request(ctx)
-    findings = all_findings(results)
-    return {
-        "status": "ok",
-        "findings_count": len(findings),
-        "findings": [_finding_to_json(f) for f in findings],
-        "by_module": [
-            {
-                "module_id": r.module_id,
-                "owasp_id": r.owasp_id,
-                "findings": [_finding_to_json(f) for f in r.findings],
-            }
-            for r in results
-        ],
-    }
-
-
 # `/__waf/{waf_tail:path}` 보다 먼저 등록해야 정적 파일이 404로 가지 않음
 _WAF_STATIC_DIR = _BASE / "static" / "waf"
 app.mount(
@@ -461,52 +534,17 @@ async def dashboard_legacy_redirect_slash() -> RedirectResponse:
     return RedirectResponse(url=f"{WAF_UI_PREFIX}/dashboard", status_code=307)
 
 
-# ── A05 Injection 테스트 API ───────────────────────────────────────────────
-
-class _A05ScanRequest(BaseModel):
-    method: str = "GET"
-    path: str = "/"
-    query: str = ""
-    body: str = ""
-    headers: dict[str, str] = {}
-
-
-@app.post("/__waf/api/scan/a05")
-async def waf_scan_a05(req: _A05ScanRequest) -> dict:
-    from owasp import a05 as _a05
-    from owasp.types import RequestContext
-
-    ctx = RequestContext(
-        method=req.method.upper(),
-        path=req.path,
-        query_string=req.query,
-        headers=req.headers,
-        body_preview=req.body,
-    )
-    result = await _a05.scan(ctx)
-    findings = [
-        {
-            "rule_id": f.rule_id,
-            "severity": f.severity.value,
-            "evidence": f.evidence,
-        }
-        for f in result.findings
-    ]
-    return {
-        "owasp_id": result.owasp_id,
-        "total": len(findings),
-        "blocked": any(
-            f["severity"] in ("critical", "high") for f in findings
-        ),
-        "findings": findings,
-    }
-
-
 @app.api_route("/", methods=METHODS)
 async def proxy_root(request: Request) -> Response:
-    blocked = await _waf_response_or_none(request)
+    blocked, scan_results, blocking_findings = await _run_waf_gate(request)
     if blocked is not None:
-        await traffic_log.record(request, status_code=403, blocked=True)
+        rows = tuple(
+            _finding_enriched_dict(scan_results, f, evidence_max=400)
+            for f in blocking_findings
+        )
+        await traffic_log.record(
+            request, status_code=403, blocked=True, block_findings=rows
+        )
         return blocked
     resp = await _forward(request, "")
     await traffic_log.record(request, status_code=resp.status_code, blocked=False)
@@ -527,9 +565,15 @@ async def proxy_path(full_path: str, request: Request) -> Response:
     # /__waf/* 는 위의 전용 라우트에서 처리; 여기는 예외 경로만 안전망
     if full_path == "__waf" or full_path.startswith("__waf/"):
         return _waf_unknown_path_response()
-    blocked = await _waf_response_or_none(request)
+    blocked, scan_results, blocking_findings = await _run_waf_gate(request)
     if blocked is not None:
-        await traffic_log.record(request, status_code=403, blocked=True)
+        rows = tuple(
+            _finding_enriched_dict(scan_results, f, evidence_max=400)
+            for f in blocking_findings
+        )
+        await traffic_log.record(
+            request, status_code=403, blocked=True, block_findings=rows
+        )
         return blocked
     resp = await _forward(request, full_path)
     await traffic_log.record(request, status_code=resp.status_code, blocked=False)

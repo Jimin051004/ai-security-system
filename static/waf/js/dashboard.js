@@ -59,6 +59,7 @@ function renderTraffic(events) {
       '<tr><td colspan="6" class="traffic-empty">기록 없음 · <code>' +
       window.location.origin +
       "/</code></td></tr>";
+    renderDetections([]);
     return;
   }
   let blocked = 0;
@@ -85,6 +86,58 @@ function renderTraffic(events) {
         "</td></tr>"
     )
     .join("");
+  renderDetections(events);
+}
+function renderDetections(events) {
+  const body = document.getElementById("detections-feed-body");
+  const foot = document.getElementById("detections-updated");
+  if (!body) return;
+  const rows = [];
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (!e.blocked) continue;
+    const fs = e.block_findings && e.block_findings.length ? e.block_findings : [null];
+    for (let j = 0; j < fs.length; j++) {
+      rows.push({ e: e, f: fs[j] });
+    }
+  }
+  if (!rows.length) {
+    body.innerHTML =
+      '<tr><td colspan="11" class="traffic-empty">차단된 공격이 없습니다. 인젝션 등이 포함된 요청이 오면 OWASP·유형·위치·규칙이 여기에 표시됩니다.</td></tr>';
+    if (foot) foot.textContent = "";
+    return;
+  }
+  body.innerHTML = rows
+    .map(({ e, f }) => {
+      const o = f || {};
+      return (
+        "<tr><td>" +
+        escapeHtml(e.time_iso) +
+        "</td><td>" +
+        escapeHtml(e.client_ip) +
+        "</td><td>" +
+        escapeHtml(e.method) +
+        '</td><td class="col-path">' +
+        escapeHtml(e.path) +
+        "</td><td>" +
+        escapeHtml(o.owasp_id || "—") +
+        "</td><td>" +
+        escapeHtml(o.category || "—") +
+        "</td><td>" +
+        escapeHtml(o.attack_type || "—") +
+        "</td><td class=\"mono-stat\">" +
+        escapeHtml(o.location || "—") +
+        "</td><td class=\"mono-stat\">" +
+        escapeHtml(o.rule_id || "—") +
+        "</td><td>" +
+        escapeHtml(o.severity || "—") +
+        '</td><td class="col-detail">' +
+        escapeHtml(o.evidence || "—") +
+        "</td></tr>"
+      );
+    })
+    .join("");
+  if (foot) foot.textContent = "탐지 표: " + new Date().toLocaleString("ko-KR");
 }
 async function loadTraffic() {
   const foot = document.getElementById("traffic-updated");
@@ -178,27 +231,6 @@ async function loadModules() {
   } catch (err) {
     if (foot) foot.textContent = "모듈 API 오류";
   }
-}
-function renderScanDemoFindings(findings) {
-  const body = document.getElementById("scan-demo-body-out");
-  if (!body) return;
-  if (!findings || !findings.length) {
-    body.innerHTML =
-      '<tr><td colspan="3" class="traffic-empty">탐지 없음 (또는 차단 기준 미만)</td></tr>';
-    return;
-  }
-  body.innerHTML = findings
-    .map(
-      (f) =>
-        "<tr><td class=\"mono-stat\">" +
-        escapeHtml(f.rule_id) +
-        "</td><td>" +
-        escapeHtml(f.severity) +
-        '</td><td class="col-path">' +
-        escapeHtml(f.evidence) +
-        "</td></tr>"
-    )
-    .join("");
 }
 async function loadSummary() {
   try {
@@ -317,41 +349,6 @@ if (btn) {
     loadTraffic();
     loadClients();
     loadModules();
-  });
-}
-const scanForm = document.getElementById("scan-demo-form");
-if (scanForm) {
-  scanForm.addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const statusEl = document.getElementById("scan-demo-status");
-    const methodEl = document.getElementById("scan-demo-method");
-    const pathEl = document.getElementById("scan-demo-path");
-    const queryEl = document.getElementById("scan-demo-query");
-    const bodyEl = document.getElementById("scan-demo-body");
-    if (statusEl) statusEl.textContent = "실행 중…";
-    try {
-      const r = await fetch("/__waf/api/scan-demo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          method: methodEl ? methodEl.value : "GET",
-          path: pathEl ? pathEl.value : "/",
-          query_string: queryEl ? queryEl.value : "",
-          headers: {},
-          body_preview: bodyEl ? bodyEl.value : "",
-        }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.detail || "HTTP " + r.status);
-      renderScanDemoFindings(data.findings || []);
-      if (statusEl) {
-        const n = data.findings_count != null ? data.findings_count : (data.findings || []).length;
-        statusEl.textContent = "완료 · 탐지 " + n + "건";
-      }
-    } catch (err) {
-      renderScanDemoFindings([]);
-      if (statusEl) statusEl.textContent = "오류";
-    }
   });
 }
 setInterval(loadSummary, 15000);

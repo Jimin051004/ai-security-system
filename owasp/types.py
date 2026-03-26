@@ -28,6 +28,8 @@ class Finding:
     rule_id: str
     evidence: str
     severity: Severity
+    # path, query.q, body 등 탐지된 입력 위치
+    location: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

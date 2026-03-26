@@ -264,7 +264,12 @@ def _decode_plus(value: str) -> list[str]:
 # 핵심 스캔 로직
 # ---------------------------------------------------------------------------
 
-def _scan_value(value: str, *, plus_decode: bool = False) -> list[Finding]:
+def _scan_value(
+    value: str,
+    *,
+    plus_decode: bool = False,
+    location: str | None = None,
+) -> list[Finding]:
     """단일 문자열 값에 대해 모든 규칙을 적용하고 Finding 목록을 반환."""
     findings: list[Finding] = []
     variants = _decode_plus(value) if plus_decode else _decode_layers(value)
@@ -279,6 +284,7 @@ def _scan_value(value: str, *, plus_decode: bool = False) -> list[Finding]:
                         rule_id=rule.rule_id,
                         evidence=f"{rule.description} | 탐지값: {matched_text!r}",
                         severity=rule.severity,
+                        location=location,
                     )
                 )
                 break  # 같은 규칙은 variant별로 중복 탐지 방지
@@ -546,7 +552,7 @@ async def scan(ctx: RequestContext) -> ModuleScanResult:
 
     for label, value in _collect_targets(ctx):
         plus = label.startswith("query") or label.startswith("form")
-        findings = _scan_value(value, plus_decode=plus)
+        findings = _scan_value(value, plus_decode=plus, location=label)
         all_findings.extend(findings)
 
     return ModuleScanResult(

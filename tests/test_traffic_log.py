@@ -58,6 +58,7 @@ def test_traffic_record_and_snapshot_order() -> None:
     assert rows[1]["path"] == "/checkout"
     assert rows[1]["client_ip"] == "203.0.113.9"
     assert rows[1]["blocked"] is False
+    assert rows[1].get("block_findings") in ([], ())
 
 
 def test_waf_paths_not_logged() -> None:

@@ -26,6 +26,8 @@ class TrafficEvent:
     user_agent: str
     status_code: int
     blocked: bool
+    # 차단 시 탐지 상세(OWASP·유형·위치). 통과 요청은 빈 튜플
+    block_findings: tuple[dict[str, str], ...] = ()
 
 
 _EVENTS: deque[TrafficEvent] = deque(maxlen=MAX_EVENTS)
@@ -57,7 +59,13 @@ def clear() -> None:
     _CLIENT_AGG.clear()
 
 
-async def record(request: Request, *, status_code: int, blocked: bool) -> None:
+async def record(
+    request: Request,
+    *,
+    status_code: int,
+    blocked: bool,
+    block_findings: tuple[dict[str, str], ...] = (),
+) -> None:
     if not should_log_path(request.url.path):
         return
     ua = request.headers.get("user-agent") or "—"
@@ -65,6 +73,7 @@ async def record(request: Request, *, status_code: int, blocked: bool) -> None:
         ua = ua[:217] + "…"
     time_iso = datetime.now(TZ_SEOUL).strftime("%Y-%m-%d %H:%M:%S")
     cip = _client_ip(request)
+    bf: tuple[dict[str, str], ...] = block_findings if blocked else ()
     ev = TrafficEvent(
         time_iso=time_iso,
         client_ip=cip,
@@ -73,6 +82,7 @@ async def record(request: Request, *, status_code: int, blocked: bool) -> None:
         user_agent=ua,
         status_code=int(status_code),
         blocked=blocked,
+        block_findings=bf,
     )
     async with _LOCK:
         _EVENTS.append(ev)
