@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WAF — 요청 차단</title>
+  <link rel="stylesheet" href="/__waf/static/css/waf_blocked.css" />
+</head>
+<body>
+  <h1>요청이 WAF에 의해 차단되었습니다</h1>
+  <p class="waf-block-lead">
+    아래 OWASP 분류·공격 유형(A05 인젝션 규칙)이 탐지되어 프록시 정책에 따라 전달되지 않았습니다.
+  </p>
+  <ul class="waf-block-list">
+    {% for row in rows %}
+    <li>
+      <strong>{{ row.owasp_id }}</strong> — {{ row.category }} — <em>{{ row.attack_type }}</em>
+      (심각도: {{ row.severity }})<br />
+      <span class="waf-block-loc">탐지 위치: {{ row.location }} · 규칙 {{ row.rule_id }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="waf-block-hint">
+    <a href="javascript:history.back()">이전 페이지</a> ·
+    <a href="/">처음으로</a>
+  </p>
+  <script type="application/json" id="waf-block-boot">{{ boot | tojson }}</script>
+  <script src="/__waf/static/js/waf_blocked.js" defer></script>
+</body>
+</html>

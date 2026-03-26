@@ -1,0 +1,47 @@
+/* WAF 차단 전용 페이지 (Juice Shop 등 프록시 차단 시) */
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  max-width: 42rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  background: #0f172a;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 1.15rem;
+  color: #f87171;
+  margin-top: 0;
+}
+
+.waf-block-lead {
+  margin: 0 0 1rem;
+  color: #cbd5e1;
+}
+
+.waf-block-list {
+  padding-left: 1.15rem;
+  margin: 0.75rem 0;
+}
+
+.waf-block-list li {
+  margin: 0.5rem 0;
+  font-size: 0.88rem;
+}
+
+.waf-block-loc {
+  color: #94a3b8;
+  font-size: 0.78rem;
+}
+
+.waf-block-hint {
+  color: #94a3b8;
+  font-size: 0.82rem;
+  margin-top: 1.75rem;
+}
+
+.waf-block-hint a {
+  color: #93c5fd;
+}

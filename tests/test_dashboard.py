@@ -88,7 +88,10 @@ def test_waf_api_modules_lists_a05() -> None:
 def test_blocked_request_logs_enriched_findings_in_traffic_api() -> None:
     traffic_log.clear()
     client = TestClient(app)
-    r = client.get("/api/x?q=test' OR '1'='1")
+    r = client.get(
+        "/api/x?q=test' OR '1'='1",
+        headers={"Accept": "application/json"},
+    )
     assert r.status_code == 403
     data = r.json()
     assert data.get("blocked") is True

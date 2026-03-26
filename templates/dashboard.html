@@ -138,37 +138,6 @@
             </div>
             <p id="clients-updated" class="feed-foot"></p>
           </div>
-          <!-- A05 Injection 테스트 패널 -->
-          <div class="card card-wide">
-            <h2>🔍 A05:2025 Injection 탐지 테스트</h2>
-            <p class="clients-hint">
-              업스트림 전달 전 WAF 프록시 레이어에서 인젝션 페이로드를 탐지합니다.<br>
-              URL, 쿼리스트링, 바디에 직접 페이로드를 입력하여 탐지 결과를 확인하세요.
-            </p>
-            <div class="a05-form">
-              <div class="a05-row">
-                <select id="a05-method" class="a05-select">
-                  <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
-                </select>
-                <input id="a05-path"  class="a05-input a05-path"  type="text" placeholder="경로 예) /search" value="/search" />
-              </div>
-              <input id="a05-query" class="a05-input" type="text" placeholder="쿼리스트링 예) q=' OR '1'='1" />
-              <textarea id="a05-body" class="a05-textarea" placeholder="요청 바디 예) username=admin&password='; DROP TABLE users--" rows="3"></textarea>
-              <div class="a05-presets">
-                <span class="a05-preset-label">빠른 테스트:</span>
-                <button type="button" class="a05-preset-btn" data-query="q=' OR '1'='1--" data-body="">SQL Injection</button>
-                <button type="button" class="a05-preset-btn" data-query="q=shoes' UNION SELECT username,password FROM users--" data-body="">UNION</button>
-                <button type="button" class="a05-preset-btn" data-query="" data-body="host=127.0.0.1;cat /etc/passwd">OS Command</button>
-                <button type="button" class="a05-preset-btn" data-query="q=&lt;script&gt;alert(1)&lt;/script&gt;" data-body="">XSS</button>
-                <button type="button" class="a05-preset-btn" data-query="template={{7*7}}" data-body="">SSTI</button>
-                <button type="button" class="a05-preset-btn" data-query="url=http://example.com%0d%0aSet-Cookie:evil=1" data-body="">CRLF</button>
-                <button type="button" class="a05-preset-btn" data-query="category=shoes&sort=price" data-body="">✅ 정상</button>
-              </div>
-              <button type="button" class="btn-gradient a05-run-btn" id="a05-run">▶ 탐지 실행</button>
-            </div>
-            <div id="a05-result" class="a05-result" hidden></div>
-          </div>
-
           <div class="card card-wide">
             <h2>프록시 로그</h2>
             <div class="traffic-feed">
