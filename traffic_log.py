@@ -5,8 +5,11 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+TZ_SEOUL = ZoneInfo("Asia/Seoul")
 
 from starlette.requests import Request
 
@@ -60,7 +63,7 @@ async def record(request: Request, *, status_code: int, blocked: bool) -> None:
     ua = request.headers.get("user-agent") or "—"
     if len(ua) > 220:
         ua = ua[:217] + "…"
-    time_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    time_iso = datetime.now(TZ_SEOUL).strftime("%Y-%m-%d %H:%M:%S")
     cip = _client_ip(request)
     ev = TrafficEvent(
         time_iso=time_iso,
