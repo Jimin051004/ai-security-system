@@ -320,17 +320,66 @@ def _param_bonus(label: str) -> int:
     return 0
 
 
-def _scan_value(label: str, value: str) -> list[Finding]:
-    """단일 (label, value) 쌍에 모든 SSRF 규칙을 적용한다.
+def _ssrf_category_short(rule_id: str) -> str:
+    """rule_id → 짧은 SSRF 공격 카테고리 이름 반환 (alert·evidence 표시용)."""
+    prefix_map = (
+        ("A10-SSRF-001", "클라우드 메타데이터(AWS/GCP)"),
+        ("A10-SSRF-002", "클라우드 메타데이터(GCP)"),
+        ("A10-SSRF-003", "클라우드 메타데이터(ECS)"),
+        ("A10-SSRF-004", "IAM 자격증명 탈취"),
+        ("A10-SSRF-005", "AWS 메타데이터 API"),
+        ("A10-SSRF-006", "GCP 메타데이터 API"),
+        ("A10-SSRF-007", "클라우드 메타데이터(Azure)"),
+        ("A10-SSRF-008", "루프백 주소 접근"),
+        ("A10-SSRF-009", "내부망(192.168.x.x)"),
+        ("A10-SSRF-010", "내부망(10.x.x.x)"),
+        ("A10-SSRF-011", "내부망(172.16-31.x.x)"),
+        ("A10-SSRF-012", "IPv6 루프백(::1)"),
+        ("A10-SSRF-013", "내부 도메인 접근"),
+        ("A10-SSRF-014", "Link-Local 주소"),
+        ("A10-SSRF-015", "파일 시스템 접근(file://)"),
+        ("A10-SSRF-016", "gopher:// 프로토콜"),
+        ("A10-SSRF-017", "dict:// 프로토콜"),
+        ("A10-SSRF-018", "LDAP 프로토콜"),
+        ("A10-SSRF-019", "sftp/tftp/ssh 프로토콜"),
+        ("A10-SSRF-020", "netdoc:// 프로토콜"),
+        ("A10-SSRF-021", "jar:// 프로토콜"),
+        ("A10-SSRF-022", "16진수 IP 우회"),
+        ("A10-SSRF-023", "10진수 IP 우회"),
+        ("A10-SSRF-024", "8진수 IP 우회"),
+        ("A10-SSRF-025", "URL 자격증명 우회"),
+        ("A10-SSRF-026", "단축 IP 표기 우회"),
+        ("A10-SSRF-027", "리다이렉트 파라미터 SSRF"),
+        ("A10-SSRF-028", "프로토콜 상대 URL"),
+    )
+    for rid, name in prefix_map:
+        if rule_id == rid:
+            return name
+    return "SSRF 위조 요청"
+
+
+def _scan_value(
+    label: str,
+    value: str,
+    rules: tuple[_Rule, ...] = _ALL_RULES,
+) -> list[Finding]:
+    """단일 (label, value) 쌍에 지정된 SSRF 규칙을 적용하고 최고점 Finding 하나를 반환한다.
 
     총점 = base_score + entropy_bonus(탐지된 문자열) + param_bonus(파라미터명)
     총점 → Severity 매핑으로 Finding 생성.
-    """
-    findings: list[Finding] = []
-    variants = _decode_layers(value)
-    p_bonus = _param_bonus(label)
 
-    for rule in _ALL_RULES:
+    같은 입력값에서 여러 규칙이 매칭돼도 최고점 1개만 반환한다.
+    → main.py WAF alert 이 단건 경로를 타
+      "규칙: A10-SSRF-001 · 위치: SSRF — query.url" 형태로 규칙 번호가 명시된다.
+
+    Finding.location = "SSRF — {탐지위치}" 로 설정하여
+    alert 에 'SSRF' 와 실제 탐지 위치가 함께 표시된다.
+    """
+    candidates: list[tuple[int, Finding]] = []   # (total_score, Finding)
+    variants   = _decode_layers(value)
+    p_bonus    = _param_bonus(label)
+
+    for rule in rules:
         for variant in variants:
             m = rule.pattern.search(variant)
             if m:
@@ -338,63 +387,105 @@ def _scan_value(label: str, value: str) -> list[Finding]:
                 e_bonus = _entropy_bonus(matched)
                 total   = min(100, rule.base_score + e_bonus + p_bonus)
                 sev     = _score_to_severity(total)
-                findings.append(Finding(
+                cat     = _ssrf_category_short(rule.rule_id)
+                candidates.append((total, Finding(
                     rule_id=rule.rule_id,
                     evidence=(
+                        f"[A10:SSRF — {cat}] "
                         f"{rule.description} | "
                         f"탐지값: {matched!r} | "
                         f"총점: {total}점 "
                         f"(기본 {rule.base_score} + 엔트로피 {e_bonus} + 파라미터 {p_bonus})"
                     ),
                     severity=sev,
-                ))
-                break  # 동일 규칙의 variant 중복 Finding 방지
+                    # location → WAF alert "위치: SSRF — query.url" 표시용
+                    location=f"SSRF — {label}",
+                )))
+                break  # 동일 규칙의 variant 중복 후보 방지
 
-    return findings
+    if not candidates:
+        return []
+
+    # 같은 입력값에서 최고점 Finding 하나만 반환
+    # → alert 단건 경로(rule_id 명시)를 타도록 Finding 수를 최소화
+    best_score = max(score for score, _ in candidates)
+    best = [f for score, f in candidates if score == best_score]
+    return [best[0]]  # 동점이면 규칙 목록 순서(= 위험도 높은 순) 중 첫 번째
 
 
-def _collect_targets(ctx: RequestContext) -> list[tuple[str, str]]:
-    """(label, value) 쌍 목록 — SSRF 스캔 대상 전체 추출."""
-    targets: list[tuple[str, str]] = []
+# (label, value, rules) 형식으로 스캔 대상을 구성한다.
+# rules=None 이면 _ALL_RULES 를 적용, 아니면 지정 규칙만 적용.
+_ScanTarget = tuple[str, str, tuple[_Rule, ...]]
 
-    # URL 경로
-    targets.append(("path", ctx.path))
 
-    # 쿼리스트링 전체 + 파라미터별
+def _collect_targets(ctx: RequestContext) -> list[_ScanTarget]:
+    """(label, value, rules) 튜플 목록 — SSRF 스캔 대상 전체 추출.
+
+    query_raw 는 A10-SSRF-027/028(리다이렉트 규칙)에만 적용한다.
+    파싱된 개별 파라미터에 이미 모든 규칙이 적용되므로, query_raw 까지 모든 규칙을
+    적용하면 동일 URL에서 Finding 이 2배로 발생해 alert 단건 경로를 벗어난다.
+    """
+    targets: list[_ScanTarget] = []
+
+    # URL 경로 — 모든 규칙
+    targets.append(("path", ctx.path, _ALL_RULES))
+
+    # 쿼리스트링
     if ctx.query_string:
-        targets.append(("query_raw", ctx.query_string))
+        # 파싱된 개별 파라미터 → 모든 규칙 적용 (파라미터명 가산점 포함)
+        parsed_ok = False
         try:
             parsed = urllib.parse.parse_qs(ctx.query_string, keep_blank_values=True)
             for key, values in parsed.items():
                 for v in values:
-                    targets.append((f"query.{key}", v))
+                    targets.append((f"query.{key}", v, _ALL_RULES))
+            parsed_ok = bool(parsed)
         except Exception:
             pass
+
+        # raw 쿼리스트링 → 리다이렉트 규칙만 (A10-SSRF-027/028)
+        # "url=http://..." 형식을 통째로 봐야 매칭되는 규칙이므로 제거 불가.
+        # 단, 모든 규칙 적용 시 파싱된 파라미터와 중복 Finding 이 발생하므로 제한.
+        if not parsed_ok:
+            # 파싱 실패 시에는 raw 에 모든 규칙 적용
+            targets.append(("query_raw", ctx.query_string, _ALL_RULES))
+        else:
+            targets.append(("query_raw", ctx.query_string, _REDIRECT_RULES))
 
     # 요청 바디 미리보기
     if ctx.body_preview:
-        targets.append(("body", ctx.body_preview))
         # JSON 바디 — 재귀 평탄화하여 모든 리프 값 스캔
+        json_ok = False
         try:
             obj = json.loads(ctx.body_preview)
             for k, v in _flatten_json(obj):
-                targets.append((f"body.{k}", str(v)))
-        except Exception:
-            pass
-        # URL-encoded 폼 바디
-        try:
-            if "application/x-www-form-urlencoded" in ctx.headers.get("content-type", ""):
-                parsed_body = urllib.parse.parse_qs(ctx.body_preview, keep_blank_values=True)
-                for key, values in parsed_body.items():
-                    for v in values:
-                        targets.append((f"form.{key}", v))
+                targets.append((f"body.{k}", str(v), _ALL_RULES))
+            json_ok = True
         except Exception:
             pass
 
-    # SSRF-prone 헤더 값
+        if not json_ok:
+            # JSON 파싱 실패 → raw body 에 모든 규칙
+            targets.append(("body", ctx.body_preview, _ALL_RULES))
+
+        # URL-encoded 폼 바디
+        try:
+            ct = ctx.headers.get("content-type", "")
+            if "application/x-www-form-urlencoded" in ct:
+                parsed_body = urllib.parse.parse_qs(ctx.body_preview, keep_blank_values=True)
+                for key, values in parsed_body.items():
+                    for v in values:
+                        targets.append((f"form.{key}", v, _ALL_RULES))
+        except Exception:
+            pass
+
+        # body raw → 리다이렉트 규칙만 (파싱 성공 여부 무관)
+        targets.append(("body", ctx.body_preview, _REDIRECT_RULES))
+
+    # SSRF-prone 헤더 값 — 모든 규칙
     for name, val in ctx.headers.items():
         if name.lower() in _SSRF_HEADERS:
-            targets.append((f"header.{name}", val))
+            targets.append((f"header.{name}", val, _ALL_RULES))
 
     return targets
 
@@ -654,13 +745,14 @@ def make_block_html(findings: tuple[Finding, ...]) -> str:
 async def scan(ctx: RequestContext) -> ModuleScanResult:
     """A10:2025 SSRF — 요청의 모든 입력값을 검사하여 SSRF 패턴을 탐지한다.
 
-    탐지 → Finding(rule_id, evidence, severity) 반환.
+    탐지 → Finding(rule_id, evidence, severity, location) 반환.
     severity 는 base_score + entropy_bonus + param_bonus 총점으로 결정.
+    Finding.location 은 "SSRF — {탐지위치}" 형식 → WAF alert 에 규칙번호·위치 명시.
     """
     all_findings: list[Finding] = []
 
-    for label, value in _collect_targets(ctx):
-        findings = _scan_value(label, value)
+    for label, value, rules in _collect_targets(ctx):
+        findings = _scan_value(label, value, rules)
         all_findings.extend(findings)
 
     return ModuleScanResult(
