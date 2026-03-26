@@ -31,6 +31,11 @@ if not _parsed.scheme or not _parsed.netloc:
 
 UPSTREAM_BASE = UPSTREAM_RAW
 UPSTREAM_HOST_HEADER = _parsed.netloc
+UPSTREAM_ORIGIN = f"{_parsed.scheme}://{_parsed.netloc}".rstrip("/")
+
+# LAN 등에서 클라이언트가 프록시 호스트(예: 192.168.x.x:8080)로 접속할 때,
+# 업스트림 HTML/JS에 박힌 http://127.0.0.1:3001 절대 URL 때문에 브라우저가 로컬로 요청하는 문제 방지
+PROXY_REWRITE_MAX_BYTES = int(os.environ.get("PROXY_REWRITE_MAX_BYTES", str(6 * 1024 * 1024)))
 
 
 def _waf_enabled() -> bool:
@@ -161,6 +166,91 @@ def _upstream_headers(request: Request) -> dict[str, str]:
     return out
 
 
+def _request_public_origin(request: Request) -> str:
+    u = request.url
+    return f"{u.scheme}://{u.netloc}".rstrip("/")
+
+
+def _upstream_origin_variants() -> list[str]:
+    """UPSTREAM_URL 과 같은 서버를 가리키는 localhost / 127.0.0.1 표기 (SPA 번들·리다이렉트에 섞임)."""
+    variants = [UPSTREAM_ORIGIN]
+    host = (_parsed.hostname or "").lower()
+    scheme = (_parsed.scheme or "http").lower()
+    port = _parsed.port
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    if host in ("127.0.0.1", "localhost"):
+        alt = "localhost" if host == "127.0.0.1" else "127.0.0.1"
+        variants.append(f"{scheme}://{alt}:{port}")
+    out: list[str] = []
+    seen: set[str] = set()
+    for v in variants:
+        if v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+def _rewrite_location_header(value: str, request: Request) -> str:
+    pub = _request_public_origin(request)
+    v = (value or "").strip()
+    for orig in sorted(_upstream_origin_variants(), key=len, reverse=True):
+        if v.startswith(orig):
+            return pub + v[len(orig) :]
+    return value
+
+
+def _media_type_should_rewrite_body(ct_header: str) -> bool:
+    main = (ct_header or "").split(";")[0].strip().lower()
+    if main in ("text/html", "application/json", "text/css"):
+        return True
+    if "javascript" in main or "ecmascript" in main:
+        return True
+    return False
+
+
+def _rewrite_response_body_for_public_origin(
+    content: bytes, content_type: str, request: Request
+) -> bytes:
+    if len(content) > PROXY_REWRITE_MAX_BYTES:
+        return content
+    if not _media_type_should_rewrite_body(content_type):
+        return content
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return content
+    pub = _request_public_origin(request)
+    changed = False
+    for orig in sorted(_upstream_origin_variants(), key=len, reverse=True):
+        if orig in text:
+            text = text.replace(orig, pub)
+            changed = True
+    if not changed:
+        return content
+    return text.encode("utf-8")
+
+
+def _build_proxied_upstream_response(request: Request, upstream: httpx.Response) -> Response:
+    ct = upstream.headers.get("content-type", "")
+    content = _rewrite_response_body_for_public_origin(upstream.content, ct, request)
+    out: list[tuple[str, str]] = []
+    for key, value in upstream.headers.multi_items():
+        lk = key.lower()
+        if lk in HOP_BY_HOP:
+            continue
+        if lk in ("content-length", "content-encoding", "transfer-encoding"):
+            continue
+        if lk == "location":
+            value = _rewrite_location_header(value, request)
+        out.append((key, value))
+    return Response(
+        content=content,
+        status_code=upstream.status_code,
+        headers=out,
+    )
+
+
 async def _forward(request: Request, full_path: str) -> Response:
     path = full_path.lstrip("/")
     url = f"{UPSTREAM_BASE}/{path}" if path else UPSTREAM_BASE
@@ -186,16 +276,7 @@ async def _forward(request: Request, full_path: str) -> Response:
                 media_type="text/plain; charset=utf-8",
             )
 
-    out_headers = {
-        k: v
-        for k, v in upstream.headers.items()
-        if k.lower() not in HOP_BY_HOP and k.lower() != "content-length"
-    }
-    return Response(
-        content=upstream.content,
-        status_code=upstream.status_code,
-        headers=dict(out_headers),
-    )
+    return _build_proxied_upstream_response(request, upstream)
 
 
 def _finding_to_json(f) -> dict[str, str]:
