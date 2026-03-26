@@ -58,10 +58,6 @@ function applySummary(d) {
   if (ps) {
     ps.textContent = d.process_started_at || "—";
   }
-  var psh = document.getElementById("process-started-hint");
-  if (psh) {
-    psh.style.display = d.process_started_at ? "none" : "block";
-  }
   var envEl = document.getElementById("env-snapshot");
   if (envEl && d.env && typeof d.env === "object") {
     var parts = [];
@@ -77,8 +73,6 @@ function applySummary(d) {
     }
     envEl.innerHTML = parts.join("");
   }
-  var upd = document.getElementById("updated");
-  if (upd) upd.textContent = "요약 갱신: " + new Date().toLocaleString("ko-KR");
 }
 
 function trafficResultHtml(e) {
@@ -172,7 +166,7 @@ function renderDetections(events) {
   }
   if (!rows.length) {
     body.innerHTML =
-      '<tr><td colspan="11" class="traffic-empty">차단된 공격이 없습니다. 인젝션 등이 포함된 요청이 오면 OWASP·유형·위치·규칙이 여기에 표시됩니다.</td></tr>';
+      '<tr><td colspan="11" class="traffic-empty">차단 없음</td></tr>';
     if (foot) foot.textContent = "";
     return;
   }
@@ -203,13 +197,13 @@ function renderDetections(events) {
         escapeHtml(o.rule_id || "—") +
         "</td><td>" +
         escapeHtml(o.severity || "—") +
-        '</td><td class="col-detail"><details class="evidence-fold"><summary>상세 보기</summary><pre class="evidence-pre">' +
+        '</td><td class="col-detail"><details class="evidence-fold"><summary>상세</summary><pre class="evidence-pre">' +
         escapeHtml(ev) +
         "</pre></details></td></tr>"
       );
     })
     .join("");
-  if (foot) foot.textContent = "탐지 표: " + new Date().toLocaleString("ko-KR");
+  if (foot) foot.textContent = "";
 }
 
 function renderTraffic(events) {
@@ -221,9 +215,7 @@ function renderTraffic(events) {
     if (statTotal) statTotal.textContent = "0";
     if (statBlocked) statBlocked.textContent = "0";
     body.innerHTML =
-      '<tr><td colspan="6" class="traffic-empty">기록 없음 · <code>' +
-      escapeHtml(window.location.origin) +
-      "/</code></td></tr>";
+      '<tr><td colspan="6" class="traffic-empty">기록 없음</td></tr>';
     renderDetections([]);
     renderLastBlockHighlight();
     return;
@@ -307,7 +299,6 @@ function applyStats(s, sourceNote) {
   var donut = document.getElementById("kpi-donut");
   var donutPct = document.getElementById("kpi-donut-pct");
   var chips = document.getElementById("kpi-chips");
-  var lead = document.getElementById("kpi-lead");
   if (!t || !b || !r) return;
   var total = Number(s.total_logged) || 0;
   var blocked = Number(s.blocked_count) || 0;
@@ -322,21 +313,13 @@ function applyStats(s, sourceNote) {
   if (chips) {
     var atks = s.top_attack_types || [];
     if (!atks.length) {
-      if (total === 0) {
-        chips.innerHTML =
-          '<span class="kpi-chip kpi-chip-muted">아직 기록된 요청 없음</span>';
-      } else if (blocked === 0) {
-        chips.innerHTML =
-          '<span class="kpi-chip kpi-chip-muted">이 구간 차단 0건 · 정상일 수 있음</span>';
-      } else {
-        chips.innerHTML = "";
-      }
+      chips.innerHTML = "";
     } else {
       chips.innerHTML = atks
         .slice(0, 4)
         .map(function (x) {
           return (
-            '<span class="kpi-chip" title="탐지 건수">' +
+            '<span class="kpi-chip">' +
             escapeHtml(x.key) +
             " · " +
             escapeHtml(String(x.count)) +
@@ -347,27 +330,8 @@ function applyStats(s, sourceNote) {
     }
   }
 
-  if (lead) {
-    if (total === 0) {
-      lead.textContent =
-        "아래 프록시 로그가 채워지면 KPI가 함께 갱신됩니다.";
-    } else if (blocked === 0) {
-      lead.textContent =
-        "버퍼에 쌓인 " + total + "건 중 차단은 없습니다. 공격 시뮬레이션 시 여기에 쌓입니다.";
-    } else {
-      lead.textContent =
-        "차단 " +
-        blocked +
-        "건 · 비율 " +
-        (Math.round(ratio * 10) / 10).toFixed(1) +
-        "% (동일 메모리 버퍼 기준)";
-    }
-  }
-
   function fmtTop(items, label) {
     if (!items || !items.length) {
-      if (total === 0) return label + " 기록 없음";
-      if (blocked === 0) return label + " 차단 없음";
       return label + " —";
     }
     var parts = items.slice(0, 3).map(function (x) {
@@ -375,21 +339,18 @@ function applyStats(s, sourceNote) {
     });
     return label + " " + parts.join(", ");
   }
-  if (ta) ta.textContent = fmtTop(s.top_attack_types, "상위 공격 유형:");
-  if (tr) tr.textContent = fmtTop(s.top_rule_ids, "상위 규칙 ID:");
+  if (ta) ta.textContent = fmtTop(s.top_attack_types, "공격");
+  if (tr) tr.textContent = fmtTop(s.top_rule_ids, "규칙");
 
   if (foot) {
     foot.classList.remove("stats-source-local", "stats-source-ok");
     var ts = new Date().toLocaleString("ko-KR");
     if (sourceNote === "local") {
       foot.classList.add("stats-source-local");
-      foot.textContent =
-        "통계: " +
-        ts +
-        " · 로그 버퍼 기준(브라우저 계산). 서버에 `GET /__waf/api/stats`가 있으면 자동으로 서버 값을 씁니다.";
+      foot.textContent = ts + " · 버퍼";
     } else {
       foot.classList.add("stats-source-ok");
-      foot.textContent = "통계: " + ts + " · 서버 API";
+      foot.textContent = ts + " · 서버";
     }
   }
 }
@@ -411,9 +372,9 @@ async function loadTraffic() {
     if (!res.ok) throw new Error("HTTP " + res.status);
     rawEvents = (await res.json()).events || [];
     renderTraffic(getFilteredEvents());
-    if (foot) foot.textContent = "로그: " + new Date().toLocaleString("ko-KR");
+    if (foot) foot.textContent = "";
   } catch (err) {
-    if (foot) foot.textContent = "로그 오류";
+    if (foot) foot.textContent = "오류";
   }
 }
 
@@ -471,9 +432,9 @@ async function loadClients() {
     var res = await fetch("/__waf/api/clients");
     if (!res.ok) throw new Error("HTTP " + res.status);
     renderClients(await res.json());
-    if (foot) foot.textContent = "접속자: " + new Date().toLocaleString("ko-KR");
+    if (foot) foot.textContent = "";
   } catch (err) {
-    if (foot) foot.textContent = "접속자 오류";
+    if (foot) foot.textContent = "오류";
   }
 }
 

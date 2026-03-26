@@ -23,7 +23,7 @@
       <button type="button" class="btn-gradient" id="btn-refresh" aria-label="요약·로그·통계 수동 갱신">↻ 갱신</button>
       <label class="toggle-row">
         <input type="checkbox" id="auto-refresh"/>
-        <span>자동 갱신 (2s 로그·KPI·상단 요약)</span>
+        <span>자동 갱신 (2s)</span>
       </label>
       <div>
         <div class="nav-label">이동</div>
@@ -41,8 +41,7 @@
         <div class="grid">
           <div class="card card-wide card-kpi">
             <div class="kpi-head">
-              <h2>차단 KPI <span class="kpi-sub">(메모리 버퍼 최대 200건)</span></h2>
-              <p class="kpi-lead" id="kpi-lead">프록시를 경유한 요청만 집계합니다.</p>
+              <h2>차단 KPI <span class="kpi-sub">(200건)</span></h2>
             </div>
             <div class="kpi-row" id="kpi-row" role="status" aria-label="차단 통계">
               <div class="kpi-donut-shell" aria-hidden="true">
@@ -71,8 +70,8 @@
               </div>
             </div>
             <div class="kpi-chips" id="kpi-chips" aria-label="상위 탐지 유형"></div>
-            <div class="kpi-top" id="kpi-top-attacks">상위 공격 유형: —</div>
-            <div class="kpi-top" id="kpi-top-rules">상위 규칙 ID: —</div>
+            <div class="kpi-top" id="kpi-top-attacks">공격: —</div>
+            <div class="kpi-top" id="kpi-top-rules">규칙: —</div>
             <p id="stats-updated" class="feed-foot stats-foot"></p>
           </div>
           <div class="card card-highlight" id="last-block-card">
@@ -99,12 +98,10 @@
           <div class="card">
             <h2>프록시 공개 주소</h2>
             <p id="proxy-public-origin" class="mono-stat">…</p>
-            <p class="card-sub">팀원 접속 시 브라우저에 보이는 이 주소로 안내하면 됩니다.</p>
           </div>
           <div class="card">
             <h2>프로세스 기동 (KST)</h2>
             <p id="process-started" class="mono-stat">…</p>
-            <p class="card-sub" id="process-started-hint">서버가 최신 코드면 갱신 직후 시각이 표시됩니다.</p>
           </div>
           <div class="card">
             <h2>업스트림</h2>
@@ -116,19 +113,13 @@
               <span id="traffic-stat-total">0</span>건 표시 ·
               <span class="stat-blocked"><span id="traffic-stat-blocked">0</span>건 차단</span>
             </p>
-            <p class="card-sub">필터로 걸러진 결과입니다.</p>
           </div>
           <div class="card card-wide">
-            <h2>환경 스냅샷 (읽기 전용)</h2>
+            <h2>환경</h2>
             <dl class="env-dl" id="env-snapshot"></dl>
           </div>
           <div class="card card-wide">
             <h2>탐지·차단 상세</h2>
-            <p class="detections-hint">
-              정책에 따라 차단된 요청만 표시합니다. OWASP 항목·인젝션 유형(SQLi 등)·탐지된 입력 위치(path / 쿼리 / 바디 등)와 규칙 ID를 한눈에 볼 수 있습니다.
-              <strong>상세(증거)</strong> 열은 펼쳐서 전체를 볼 수 있습니다.
-            </p>
-            <p class="scroll-hint" role="note">표가 넓을 때는 아래 영역을 <strong>가로로 스크롤</strong>하세요.</p>
             <div class="traffic-feed traffic-feed-scroll">
               <table class="traffic-table traffic-table-detections">
                 <thead>
@@ -158,11 +149,6 @@
             <p class="clients-big" aria-live="polite">
               <span id="clients-count">0</span><span class="clients-label">명</span>
               <span class="clients-sub" id="clients-requests-total"></span>
-            </p>
-            <p class="clients-hint">
-              IP는 이 프록시로 요청을 보낸 기기 주소입니다(X-Forwarded-For가 있으면 그중 첫 값).
-              「통과 요청」은 업스트림으로 넘긴 HTTP 한 건당 1이므로, 한 페이지를 열 때도 JS·CSS·API 등으로 여러 번 올라갑니다.
-              <strong>/__waf/</strong> 대시보드와 그 정적 파일은 집계에서 제외됩니다.
             </p>
             <div class="traffic-feed">
               <table class="traffic-table">
@@ -207,7 +193,6 @@
               <button type="button" class="btn-ghost" id="btn-export-json">로그 JSON보내기</button>
               <button type="button" class="btn-ghost" id="btn-copy-json">버퍼 JSON 복사</button>
             </div>
-            <p class="scroll-hint" role="note">가로 스크롤로 Path·User-Agent 전체를 확인할 수 있습니다.</p>
             <div class="traffic-feed traffic-feed-scroll-x">
               <table class="traffic-table">
                 <thead>
@@ -228,7 +213,6 @@
             <p id="traffic-updated" class="feed-foot"></p>
           </div>
         </div>
-        <p id="updated" class="feed-foot"></p>
       </div>
     </div>
   </div>
