@@ -270,6 +270,27 @@ async def waf_api_summary_canonical(request: Request) -> dict[str, Any]:
     return await api_dashboard_summary(request)
 
 
+def _waf_unknown_path_response() -> JSONResponse:
+    """`/__waf/*` 중 대시보드·요약 API가 아닌 경로 — 업스트림으로 넘기면 Juice Shop HTML이 먹힘."""
+    return JSONResponse(
+        status_code=404,
+        content={"detail": "Unknown WAF UI path; use /__waf/dashboard"},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.api_route("/__waf", methods=METHODS)
+@app.api_route("/__waf/", methods=METHODS)
+async def waf_prefix_only_reserved(_request: Request) -> JSONResponse:
+    return _waf_unknown_path_response()
+
+
+# catch-all `/{full_path:path}` 보다 먼저 매칭되게 해 `__waf/scripts.js` 등이 업스트림으로 가지 않도록 함
+@app.api_route("/__waf/{waf_tail:path}", methods=METHODS)
+async def waf_unknown_subpath(waf_tail: str, _request: Request) -> JSONResponse:
+    return _waf_unknown_path_response()
+
+
 @app.get("/api/dashboard/summary")
 async def api_dashboard_summary_legacy(request: Request) -> dict[str, Any]:
     return await api_dashboard_summary(request)
@@ -304,12 +325,9 @@ async def proxy_path(full_path: str, request: Request) -> Response:
         return await dashboard_page(request)
     if request.method == "GET" and _is_waf_summary_api_path(norm):
         return await api_dashboard_summary(request)
-    # 나머지 /__waf/* 는 업스트림으로 보내지 않음 (HTML이 아닌 JSON으로 MIME 혼동 방지)
+    # /__waf/* 는 위의 전용 라우트에서 처리; 여기는 예외 경로만 안전망
     if full_path == "__waf" or full_path.startswith("__waf/"):
-        return JSONResponse(
-            status_code=404,
-            content={"detail": "Unknown WAF UI path; use /__waf/dashboard"},
-        )
+        return _waf_unknown_path_response()
     blocked = await _waf_response_or_none(request)
     if blocked is not None:
         return blocked
