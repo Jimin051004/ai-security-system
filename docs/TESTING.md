@@ -9,8 +9,10 @@ cd /path/to/ai-security-system
 python3 -m venv system
 source system/bin/activate         # Windows: system\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
-pytest -q
+python3 -m pytest -q
 ```
+
+(`pytest: command not found` 이면 위처럼 `python3 -m pytest` 를 쓰면 됩니다.)
 
 - `tests/test_detector_policy.py` — 차단 심각도·finding 집계 로직
 - `tests/test_app_health.py` — `GET /__proxy/health` 가 200·JSON 키 반환
