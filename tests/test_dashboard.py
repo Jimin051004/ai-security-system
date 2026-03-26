@@ -13,6 +13,15 @@ def test_dashboard_canonical_200() -> None:
     assert r.status_code == 200
     assert "AI Security System" in r.text
     assert "업스트림" in r.text
+    assert "no-store" in r.headers.get("cache-control", "")
+
+
+def test_waf_unknown_path_json_404() -> None:
+    client = TestClient(app)
+    r = client.get("/__waf/scripts.js")
+    assert r.status_code == 404
+    assert r.headers.get("content-type", "").startswith("application/json")
+    assert "detail" in r.json()
 
 
 def test_dashboard_legacy_redirects() -> None:

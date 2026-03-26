@@ -250,7 +250,14 @@ async def dashboard_page(request: Request) -> HTMLResponse:
         boot=initial,
         access=initial.get("access"),
     )
-    return HTMLResponse(html)
+    return HTMLResponse(
+        html,
+        headers={
+            # 같은 출처에서 업스트림(SPA) SW가 오래된 index를 쓰는 일을 줄임
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/__waf/dashboard")
@@ -297,9 +304,12 @@ async def proxy_path(full_path: str, request: Request) -> Response:
         return await dashboard_page(request)
     if request.method == "GET" and _is_waf_summary_api_path(norm):
         return await api_dashboard_summary(request)
-    # 나머지 /__waf/* 는 업스트림으로 보내지 않음
+    # 나머지 /__waf/* 는 업스트림으로 보내지 않음 (HTML이 아닌 JSON으로 MIME 혼동 방지)
     if full_path == "__waf" or full_path.startswith("__waf/"):
-        return Response(status_code=404)
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Unknown WAF UI path; use /__waf/dashboard"},
+        )
     blocked = await _waf_response_or_none(request)
     if blocked is not None:
         return blocked
