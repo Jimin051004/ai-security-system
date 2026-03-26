@@ -2,7 +2,7 @@
 
 var rawEvents = [];
 var lastBlockSummaryText = "";
-var refreshTimers = { summary: null, traffic: null, clients: null };
+var refreshTimers = { traffic: null, clients: null };
 
 function setClock() {
   var el = document.getElementById("clock");
@@ -412,10 +412,11 @@ async function loadTraffic() {
   }
 }
 
-/** 로그 버퍼 갱신 직후 KPI·도넛·칩까지 맞춤 (실시간에 가깝게 동기화) */
+/** 로그·차단 KPI·상단 요약 카드(연결/WAF/심각도/본문 등)를 같은 주기로 동기화 */
 async function syncTrafficAndKpi() {
   await loadTraffic();
   await loadStats();
+  await fetchAndApplySummary(false);
 }
 
 function renderClients(data) {
@@ -471,12 +472,13 @@ async function loadClients() {
   }
 }
 
-async function loadSummary() {
+/** @param {boolean} refreshStatsAfter true면 apply 직후 loadStats (수동 갱신 등) */
+async function fetchAndApplySummary(refreshStatsAfter) {
   try {
     var res = await fetch("/__waf/api/summary");
     if (!res.ok) throw new Error("HTTP " + res.status);
     applySummary(await res.json());
-    await loadStats();
+    if (refreshStatsAfter) await loadStats();
   } catch (e) {
     var el = document.getElementById("upstream-status");
     if (el)
@@ -485,21 +487,18 @@ async function loadSummary() {
   }
 }
 
+async function loadSummary() {
+  await fetchAndApplySummary(true);
+}
+
 function stopAutoRefresh() {
-  if (refreshTimers.summary) clearInterval(refreshTimers.summary);
   if (refreshTimers.traffic) clearInterval(refreshTimers.traffic);
   if (refreshTimers.clients) clearInterval(refreshTimers.clients);
-  refreshTimers.summary =
-    refreshTimers.traffic =
-    refreshTimers.clients =
-      null;
+  refreshTimers.traffic = refreshTimers.clients = null;
 }
 
 function startAutoRefresh() {
   stopAutoRefresh();
-  refreshTimers.summary = setInterval(function () {
-    loadSummary();
-  }, 15000);
   refreshTimers.traffic = setInterval(function () {
     syncTrafficAndKpi();
   }, 2000);
@@ -547,7 +546,6 @@ setInterval(setClock, 1000);
 var btn = document.getElementById("btn-refresh");
 if (btn) {
   btn.addEventListener("click", function () {
-    loadSummary();
     syncTrafficAndKpi();
     loadClients();
   });
@@ -579,7 +577,6 @@ if (btnLb) {
   });
 }
 
-loadSummary();
 syncTrafficAndKpi();
 loadClients();
 if (autoChk && autoChk.checked) startAutoRefresh();
