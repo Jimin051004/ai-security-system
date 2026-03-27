@@ -112,3 +112,41 @@ async def clients_snapshot() -> dict[str, Any]:
             items.append({"client_ip": ip, **dict(row)})
         items.sort(key=lambda x: str(x.get("last_seen", "")), reverse=True)
         return {"status": "ok", "unique_clients": len(items), "clients": items}
+
+
+def _top_counts(counts: dict[str, int], n: int) -> list[dict[str, Any]]:
+    items = sorted(counts.items(), key=lambda x: (-x[1], x[0]))[:n]
+    return [{"key": k, "count": v} for k, v in items]
+
+
+async def stats_snapshot() -> dict[str, Any]:
+    """버퍼 전체 기준 차단 비율·규칙/공격 유형 상위 N (대시보드 KPI용)."""
+    async with _LOCK:
+        events = list(_EVENTS)
+    total = len(events)
+    blocked_n = sum(1 for e in events if e.blocked)
+    rule_counts: dict[str, int] = {}
+    attack_counts: dict[str, int] = {}
+    for e in events:
+        if not e.blocked:
+            continue
+        for bf in e.block_findings:
+            if not isinstance(bf, dict):
+                continue
+            rid = str(bf.get("rule_id") or "").strip()
+            if rid:
+                rule_counts[rid] = rule_counts.get(rid, 0) + 1
+            atk = str(bf.get("attack_type") or "").strip()
+            if atk:
+                attack_counts[atk] = attack_counts.get(atk, 0) + 1
+    ratio = (blocked_n / total) if total else 0.0
+    return {
+        "status": "ok",
+        "buffer_capacity": MAX_EVENTS,
+        "total_logged": total,
+        "blocked_count": blocked_n,
+        "passed_count": total - blocked_n,
+        "block_ratio": round(ratio, 4),
+        "top_rule_ids": _top_counts(rule_counts, 5),
+        "top_attack_types": _top_counts(attack_counts, 5),
+    }

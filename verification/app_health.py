@@ -17,3 +17,5 @@ def test_proxy_health_ok() -> None:
     assert "waf_enabled" in data
     assert "waf_block_min_severity" in data
     assert data.get("dashboard_path") == "/__waf/dashboard"
+    assert "process_started_at" in data
+    assert len(str(data.get("process_started_at") or "")) >= 10

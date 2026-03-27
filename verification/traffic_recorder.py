@@ -83,6 +83,17 @@ def test_clients_aggregation_same_ip() -> None:
     assert snap["clients"][0]["client_ip"] == "203.0.113.9"
 
 
+def test_stats_snapshot_empty_buffer() -> None:
+    traffic_log.clear()
+    snap = asyncio.run(traffic_log.stats_snapshot())
+    assert snap["status"] == "ok"
+    assert snap["total_logged"] == 0
+    assert snap["blocked_count"] == 0
+    assert snap["block_ratio"] == 0.0
+    assert snap["top_attack_types"] == []
+    assert snap["top_rule_ids"] == []
+
+
 def test_clients_api_json() -> None:
     traffic_log.clear()
     client = TestClient(app)

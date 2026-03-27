@@ -232,12 +232,23 @@ body::before {
   grid-column: 1 / -1;
 }
 .card-status-pill p,
-.card-status-text p {
+.card-status-text p,
+.card-status-text .sev-card-slot {
   min-height: 2.15rem;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.card-block-severity .sev-card-slot {
+  min-height: auto;
+  align-items: flex-start;
 }
 .card-status-text .mono-stat {
+  font-size: 0.95rem;
+  color: var(--text);
+}
+.card-status-text .sev-card-slot {
   font-size: 0.95rem;
   color: var(--text);
 }
@@ -279,6 +290,168 @@ body::before {
   color: var(--bad);
   border: 1px solid rgba(248, 113, 113, 0.22);
 }
+
+/* 탐지·차단 심각도 배지 (LOW / MEDIUM / HIGH / CRITICAL / NONE 통일) */
+.sev-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.sev-badge.sev-low {
+  background: rgba(34, 211, 238, 0.14);
+  color: #22d3ee;
+  border-color: rgba(34, 211, 238, 0.38);
+}
+.sev-badge.sev-medium {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fcd34d;
+  border-color: rgba(251, 191, 36, 0.4);
+}
+.sev-badge.sev-high {
+  background: rgba(251, 146, 60, 0.16);
+  color: #fdba74;
+  border-color: rgba(251, 146, 60, 0.45);
+}
+.sev-badge.sev-critical {
+  background: rgba(248, 113, 113, 0.18);
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.52);
+  box-shadow: 0 0 14px rgba(248, 113, 113, 0.14);
+}
+.sev-badge.sev-none {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.3);
+}
+.sev-badge.sev-unknown {
+  background: rgba(100, 116, 139, 0.15);
+  color: #cbd5e1;
+  border-color: rgba(100, 116, 139, 0.35);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* 차단 기준·탐지 심각도 칩 래더 (KPI·카드·최근 차단 공통) */
+.kpi-sev-wrap {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(129, 140, 248, 0.15);
+}
+.kpi-sev-label {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin-bottom: 0.4rem;
+  font-weight: 600;
+}
+.kpi-sev-ladder {
+  min-height: 1.6rem;
+}
+.sev-threshold-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+.sev-threshold-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.62rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border: 1px solid transparent;
+  opacity: 0.4;
+  transition: opacity 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.sev-threshold-chip.sev-threshold-active {
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px rgba(199, 210, 254, 0.5),
+    0 4px 14px rgba(99, 102, 241, 0.22);
+  transform: scale(1.03);
+}
+.sev-threshold-chip.sev-threshold-low {
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.35);
+}
+.sev-threshold-chip.sev-threshold-medium {
+  color: #fcd34d;
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.38);
+}
+.sev-threshold-chip.sev-threshold-high {
+  color: #fdba74;
+  background: rgba(251, 146, 60, 0.14);
+  border-color: rgba(251, 146, 60, 0.42);
+}
+.sev-threshold-chip.sev-threshold-critical {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.45);
+}
+.sev-threshold-chip.sev-threshold-active.sev-threshold-low {
+  border-color: rgba(34, 211, 238, 0.65);
+}
+.sev-threshold-chip.sev-threshold-active.sev-threshold-medium {
+  border-color: rgba(251, 191, 36, 0.65);
+}
+.sev-threshold-chip.sev-threshold-active.sev-threshold-high {
+  border-color: rgba(251, 146, 60, 0.7);
+}
+.sev-threshold-chip.sev-threshold-active.sev-threshold-critical {
+  border-color: rgba(248, 113, 113, 0.75);
+}
+.last-block-sev-ladder {
+  margin: 0.5rem 0 0.35rem;
+}
+
+/* 탐지·차단 상세 + 프록시 로그: 메인 한 열 전체 너비 */
+.logs-full-column {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  min-width: 0;
+}
+.card-logs-panel {
+  width: 100%;
+  min-width: 0;
+}
+.logs-full-column .traffic-feed-logs {
+  max-height: min(28rem, 55vh);
+}
+.logs-full-column .traffic-table {
+  width: 100%;
+  min-width: max(100%, 48rem);
+}
+.logs-full-column .traffic-table .col-path {
+  max-width: none;
+  min-width: 8rem;
+}
+.logs-full-column .traffic-table .col-ua {
+  max-width: none;
+  min-width: 10rem;
+}
+.logs-full-column .traffic-table-detections .col-detail {
+  max-width: none;
+  min-width: 10rem;
+}
+
 .error-hint {
   display: block;
   margin-top: 0.4rem;
@@ -322,6 +495,17 @@ body::before {
   border-top: 1px solid rgba(255, 255, 255, 0.05);
   vertical-align: top;
   line-height: 1.35;
+  transition: background-color 0.12s ease;
+}
+/* 옵션 1: 표 스캔용 zebra + 호버 (탐지·로그·접속자 공통) */
+.traffic-table tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.025);
+}
+.traffic-table tbody tr:hover td {
+  background: rgba(99, 102, 241, 0.14);
+}
+.traffic-table tbody tr:nth-child(even):hover td {
+  background: rgba(99, 102, 241, 0.18);
 }
 .traffic-table .col-path {
   font-family: ui-monospace, "SF Mono", Consolas, monospace;

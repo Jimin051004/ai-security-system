@@ -15,6 +15,48 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+/** 서버 Severity enum 값(low/medium/high/critical/none) → 표시 라벨 */
+function severityLabel(key) {
+  var k = String(key || "").trim().toLowerCase();
+  if (!k) return "—";
+  if (k === "low") return "LOW";
+  if (k === "medium") return "MEDIUM";
+  if (k === "high") return "HIGH";
+  if (k === "critical") return "CRITICAL";
+  if (k === "none") return "NONE";
+  return String(key || "").trim().toUpperCase();
+}
+
+function severityClassKey(key) {
+  var k = String(key || "").trim().toLowerCase();
+  if (k === "low" || k === "medium" || k === "high" || k === "critical" || k === "none") {
+    return k;
+  }
+  return "unknown";
+}
+
+function severityBadgeHtml(severityRaw) {
+  var raw = severityRaw == null ? "" : String(severityRaw).trim();
+  if (!raw) {
+    return (
+      '<span class="sev-badge sev-unknown" aria-label="심각도 없음">' +
+      escapeHtml("—") +
+      "</span>"
+    );
+  }
+  var cls = severityClassKey(raw);
+  var label = severityLabel(raw);
+  return (
+    '<span class="sev-badge sev-' +
+    cls +
+    '" aria-label="심각도 ' +
+    escapeHtml(label) +
+    '">' +
+    escapeHtml(label) +
+    "</span>"
+  );
+}
+
 function applySummary(d) {
   var up = d.upstream_ok;
   var el = document.getElementById("upstream-status");
@@ -41,10 +83,11 @@ function applySummary(d) {
   }
   var sev = document.getElementById("waf-severity");
   if (sev) {
-    sev.textContent =
+    var sevRaw =
       d.waf_block_min_severity != null && d.waf_block_min_severity !== ""
         ? String(d.waf_block_min_severity)
-        : "—";
+        : "";
+    sev.innerHTML = sevRaw ? severityBadgeHtml(sevRaw) : severityBadgeHtml("");
   }
   var bpm = document.getElementById("body-preview-max");
   if (bpm && d.body_preview_max != null) {
@@ -137,12 +180,21 @@ function renderLastBlockHighlight() {
       "유형: " + (f.attack_type || "—"),
       "OWASP: " + (f.owasp_id || "—"),
     ];
-    lastBlockSummaryText = lines.join("\n");
+    lastBlockSummaryText =
+      [lines[0], lines[1], lines[2], lines[3], lines[4]].join("\n") +
+      "\n심각도: " +
+      severityLabel(f.severity) +
+      "\n" +
+      lines[5];
     body.innerHTML =
       "<span class=\"mono-stat\">" +
-      escapeHtml(lines.slice(0, 4).join(" · ")) +
+      escapeHtml([lines[0], lines[1], lines[2], lines[3]].join(" · ")) +
       "</span><br/><span class=\"last-block-detail\">" +
-      escapeHtml(lines.slice(4).join(" · ")) +
+      escapeHtml(lines[4]) +
+      " · " +
+      severityBadgeHtml(f.severity) +
+      "</span><br/><span class=\"last-block-detail\">" +
+      escapeHtml(lines[5]) +
       "</span>";
     if (btn) btn.hidden = false;
     return;
@@ -196,7 +248,7 @@ function renderDetections(events) {
         '</td><td class="mono-stat">' +
         escapeHtml(o.rule_id || "—") +
         "</td><td>" +
-        escapeHtml(o.severity || "—") +
+        severityBadgeHtml(o.severity) +
         '</td><td class="col-detail"><details class="evidence-fold"><summary>상세</summary><pre class="evidence-pre">' +
         escapeHtml(ev) +
         "</pre></details></td></tr>"
