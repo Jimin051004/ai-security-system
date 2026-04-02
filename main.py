@@ -440,22 +440,16 @@ def _blocking_payload_dict(
 
 
 def _prefer_waf_block_html(request: Request) -> bool:
-    """브라우저 문서 탐색·일반 접속은 HTML+alert, Juice Shop API(XHR)는 JSON 유지."""
+    """브라우저 주소창 직접 탐색(sec-fetch-dest: document)만 HTML 차단 페이지 반환.
+    XHR / fetch API 호출은 JSON 403 반환 → 삽입된 인터셉터 JS 가 /__waf/blocked 로 리다이렉트.
+    """
     fmt = (request.query_params.get("__waf_block_format") or "").lower()
     if fmt == "json":
         return False
     if fmt == "html":
         return True
-    if (request.headers.get("x-requested-with") or "").lower() == "xmlhttprequest":
-        return False
     dest = (request.headers.get("sec-fetch-dest") or "").lower()
-    if dest == "document":
-        return True
-    accept = (request.headers.get("accept") or "*/*").lower()
-    parts = [p.strip().split(";")[0].strip() for p in accept.split(",") if p.strip()]
-    if parts and parts[0] == "application/json":
-        return False
-    return True
+    return dest == "document"
 
 
 def _waf_blocked_html_response(payload: dict[str, Any]) -> HTMLResponse:
