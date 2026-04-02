@@ -380,6 +380,19 @@ def _attack_type_label(rule_id: str) -> str:
         return "Server-Side Template Injection (SSTI)"
     if u.startswith("A05-CRLF"):
         return "CRLF Injection"
+    # A06:2025 — Insecure Design
+    if u.startswith("A06-ROLE"):
+        return "Role/Privilege Escalation"
+    if u.startswith("A06-PRICE"):
+        return "Price / Amount Manipulation"
+    if u.startswith("A06-MASS"):
+        return "Mass Assignment (Protected Field)"
+    if u.startswith("A06-ADMIN"):
+        return "Admin Endpoint Direct Access"
+    if u.startswith("A06-STEP"):
+        return "Workflow Step Skipping"
+    if u.startswith("A06-RATE"):
+        return "Rate Limit Abuse (Brute-force)"
     # A10:2025 — Mishandling of Exceptional Conditions
     if u.startswith("A10-UNDEF"):
         return "Undefined Identifier (예외 미처리)"
@@ -585,7 +598,7 @@ async def waf_api_clients() -> dict[str, Any]:
 
 
 def _module_implementation_label(module_id: str) -> str:
-    _IMPLEMENTED = {"a05", "a10"}
+    _IMPLEMENTED = {"a05", "a06", "a10"}
     return "rules" if module_id in _IMPLEMENTED else "skeleton"
 
 
