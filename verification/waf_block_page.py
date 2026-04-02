@@ -22,8 +22,8 @@ def test_blocked_returns_json_when_accept_application_json() -> None:
     assert len(data.get("findings", [])) >= 1
 
 
-def test_blocked_returns_html_when_accept_json_plus_wildcard_like_spa_fetch() -> None:
-    """Juice Shop 등 SPA: Accept에 json이 먼저 와도 */*·text/plain이면 HTML 차단 페이지."""
+def test_blocked_returns_json_when_spa_fetch_accept_without_document_dest() -> None:
+    """XHR/fetch: Sec-Fetch-Dest 가 document 가 아니면 JSON 403(인터셉터가 /__waf/blocked 로 이동)."""
     traffic_log.clear()
     client = TestClient(app)
     r = client.get(
@@ -31,8 +31,10 @@ def test_blocked_returns_html_when_accept_json_plus_wildcard_like_spa_fetch() ->
         headers={"Accept": "application/json, text/plain, */*"},
     )
     assert r.status_code == 403
-    assert "text/html" in r.headers.get("content-type", "")
-    assert "waf_blocked.js" in r.text
+    assert "application/json" in r.headers.get("content-type", "")
+    data = r.json()
+    assert data.get("blocked") is True
+    assert len(data.get("findings", [])) >= 1
 
 
 def test_blocked_returns_html_with_alert_hint_when_browser_document() -> None:
