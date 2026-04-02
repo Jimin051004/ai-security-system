@@ -216,6 +216,65 @@ def _media_type_should_rewrite_body(ct_header: str) -> bool:
     return False
 
 
+# Juice Shop 프록시 HTML에 주입할 WAF 인터셉터 스크립트.
+# fetch / XMLHttpRequest 403 응답을 감지해 /__waf/blocked 차단 페이지로 리다이렉트.
+_WAF_INTERCEPTOR_JS = """
+<script id="__waf-interceptor">
+(function(){
+  function _wafRedirect(data) {
+    if (!data || !data.blocked) return;
+    var f = (data.findings && data.findings[0]) || {};
+    var p = new URLSearchParams({
+      owasp_id:    f.owasp_id    || '',
+      category:    f.category    || '',
+      attack_type: f.attack_type || 'WAF 차단',
+      rule_id:     f.rule_id     || '',
+      severity:    f.severity    || 'high',
+      location:    f.location    || '',
+      evidence:    (f.evidence   || '').slice(0, 200),
+    });
+    window.location.href = '/__waf/blocked?' + p.toString();
+  }
+
+  /* fetch 인터셉터 */
+  var _origFetch = window.fetch;
+  window.fetch = function(input, init) {
+    return _origFetch.call(this, input, init).then(function(resp) {
+      if (resp.status === 403) {
+        resp.clone().json().then(_wafRedirect).catch(function(){});
+      }
+      return resp;
+    });
+  };
+
+  /* XMLHttpRequest 인터셉터 */
+  var _origOpen = XMLHttpRequest.prototype.open;
+  var _origSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function(m, u) {
+    this._wafUrl = u;
+    return _origOpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function() {
+    this.addEventListener('load', function() {
+      if (this.status === 403) {
+        try { _wafRedirect(JSON.parse(this.responseText)); } catch(e) {}
+      }
+    });
+    return _origSend.apply(this, arguments);
+  };
+})();
+</script>"""
+
+
+def _inject_waf_interceptor(text: str) -> str:
+    """HTML </body> 직전에 WAF 인터셉터 스크립트를 삽입한다."""
+    tag = "</body>"
+    idx = text.lower().rfind(tag)
+    if idx == -1:
+        return text + _WAF_INTERCEPTOR_JS
+    return text[:idx] + _WAF_INTERCEPTOR_JS + text[idx:]
+
+
 def _rewrite_response_body_for_public_origin(
     content: bytes, content_type: str, request: Request
 ) -> bytes:
@@ -227,14 +286,15 @@ def _rewrite_response_body_for_public_origin(
         text = content.decode("utf-8")
     except UnicodeDecodeError:
         return content
+    main_ct = (content_type or "").split(";")[0].strip().lower()
+    # URL 재작성
     pub = _request_public_origin(request)
-    changed = False
     for orig in sorted(_upstream_origin_variants(), key=len, reverse=True):
         if orig in text:
             text = text.replace(orig, pub)
-            changed = True
-    if not changed:
-        return content
+    # HTML 응답에만 WAF 인터셉터 삽입
+    if main_ct == "text/html" and "__waf-interceptor" not in text:
+        text = _inject_waf_interceptor(text)
     return text.encode("utf-8")
 
 
@@ -577,6 +637,41 @@ async def waf_api_set_block_severity(body: BlockSeverityUpdate) -> dict[str, Any
         "status": "ok",
         "waf_block_min_severity": _waf_block_min_severity().value,
     }
+
+
+# XHR 인터셉터가 리다이렉트하는 차단 페이지 엔드포인트.
+# 쿼리파라미터(owasp_id, rule_id, attack_type, severity, location, evidence, category)로
+# 탐지 정보를 받아 waf_blocked.html 을 렌더링한다.
+@app.get("/__waf/blocked")
+async def waf_blocked_redirect_page(request: Request) -> HTMLResponse:
+    p = request.query_params
+    atk      = p.get("attack_type") or "알 수 없는 공격 유형"
+    owasp_id = p.get("owasp_id")    or "—"
+    category = p.get("category")    or "—"
+    rule_id  = p.get("rule_id")     or "—"
+    severity = p.get("severity")    or "high"
+    location = p.get("location")    or "—"
+    evidence = p.get("evidence")    or "—"
+    rows = [{
+        "owasp_id":    owasp_id,
+        "category":    category,
+        "attack_type": atk,
+        "rule_id":     rule_id,
+        "severity":    severity,
+        "location":    location,
+        "evidence":    evidence,
+    }]
+    headline = f"{atk} 취약점이 발견되어 차단되었습니다"
+    subline  = f"OWASP {owasp_id} · {category} · 규칙 {rule_id} · 탐지 위치 {location}"
+    alert_message = f"[WAF 차단] {headline}\n{subline}"
+    tpl  = _jinja_env.get_template("waf_blocked.html")
+    html = tpl.render(
+        rows=rows,
+        boot={"alert_message": alert_message},
+        headline=headline,
+        subline=subline,
+    )
+    return HTMLResponse(content=html, status_code=403, headers={"Cache-Control": "no-store"})
 
 
 # `/__waf/{waf_tail:path}` 보다 먼저 등록해야 정적 파일이 404로 가지 않음
