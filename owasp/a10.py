@@ -1,831 +1,613 @@
-"""A10:2025 — Server-Side Request Forgery (SSRF)
+"""A10:2025 — Mishandling of Exceptional Conditions
 
-프록시 레이어에서 업스트림 전달 전에 탐지·차단한다.
+예외 상황을 잘못 처리하여 스택 트레이스·내부 경로·DB 오류 등
+민감 정보가 노출되거나 애플리케이션이 비정상 종료되는 취약점을 탐지한다.
 
-검사 대상:
-  URL 경로, 쿼리스트링(파싱+raw), 요청 바디(JSON/Form/XML/raw),
-  Cookie 헤더, SSRF-prone 헤더(Referer/Origin/X-Forwarded-Host 등)
+관련 CWE: CWE-209, CWE-390, CWE-391, CWE-544, CWE-636, CWE-1321 등 24개
 
-탐지 유형 (7개 카테고리, 38개 규칙):
-  Cat.1 클라우드 메타데이터 서버  (A10-SSRF-001 ~ 010)
-  Cat.2 내부망(RFC 1918) 직접 접근  (A10-SSRF-011 ~ 017)
-  Cat.3 비표준 프로토콜 남용          (A10-SSRF-018 ~ 027)
-  Cat.4 IP 주소 인코딩 우회            (A10-SSRF-028 ~ 033)
-  Cat.5 XML/XXE → SSRF               (A10-SSRF-034 ~ 035)
-  Cat.6 리다이렉트 파라미터 남용       (A10-SSRF-036 ~ 037)
-  Cat.7 기타 위험 패턴                 (A10-SSRF-038)
-
-[점수 기반 심각도 결정 — Shannon Entropy 기법 적용]
-  총점 = base_score + entropy_bonus + param_bonus
-  CRITICAL ≥ 80  /  HIGH ≥ 55  /  MEDIUM ≥ 30  /  LOW < 30
-
-[FTP 탐지 정책]
-  A10-SSRF-018: ftp:// 독립 규칙 (base 60) → param bonus 포함 시 HIGH/CRITICAL
-  A10-SSRF-011: (https?|ftp)://로컬/내부 → CRITICAL (이미 존재)
-  → ftp://서버 접속 시 반드시 탐지·차단된다.
+────────────────────────────────────────────────────────────────────────────────
+Juice Shop 검증 시나리오 (요청만으로 탐지 가능한 패턴)
+────────────────────────────────────────────────────────────────────────────────
+Rule              | 탐지 내용                        | Juice Shop 호출 예시
+──────────────────┼──────────────────────────────────┼─────────────────────────────────────────────
+A10-UNDEF-001     | 'undefined' ID in URL path       | GET /api/Products/undefined
+A10-UNDEF-002     | 'NaN'/'Infinity' ID in URL path  | GET /api/Users/NaN
+A10-UNDEF-003     | 'null' ID in URL path            | GET /api/Products/null
+A10-PROTO-001     | __proto__ 키 — 프로토타입 오염    | POST /api/* body: {"__proto__":{"isAdmin":true}}
+A10-PROTO-002     | constructor.prototype 체인        | POST /api/* body: {"constructor":{"prototype":{}}}
+A10-PROTO-003     | __defineGetter__/__defineSetter__ | POST body: {"__defineGetter__":"x"}
+A10-BOUND-001     | JS MAX_SAFE_INTEGER 초과 ID       | GET /api/Products/9007199254740993
+A10-BOUND-002     | 음수 정수 ID in URL path          | GET /api/Products/-1
+A10-BOUND-003     | INT32 경계 값 (±2147483648)       | GET /api/Users/2147483648
+A10-BOUND-004     | 0 as resource ID                 | GET /api/Products/0
+A10-NULLB-001     | URL-encoded null byte (%00)       | GET /path%00.txt
+A10-NULLB-002     | 리터럴 null byte in body          | POST body 내 \\x00
+A10-NULLB-003     | Overlong UTF-8 null (%c0%80)      | GET /path%c0%80
+A10-FMT-001       | Printf 형식 지정자 시퀀스          | POST body/query: %s%s%d%n
+A10-FMT-002       | Node.js util.format 지정자        | query: %s%d%i%o
+A10-DEEP-001      | JSON 중첩 깊이 ≥ 15 (스택 오버플로)| POST body: {"a":{"b":{...20 levels...}}}
+A10-TYPECONF-001  | NoSQL 연산자를 스칼라 필드 값으로   | POST /rest/user/login {"email":{"$gt":""}}
+A10-TYPECONF-002  | 인증 필드에 오브젝트 값 주입        | POST /login {"password":{"x":1}}
+A10-TYPECONF-003  | 단일 오브젝트 기대 엔드포인트에 배열 | POST /api/* body: [...]
+A10-ERRPRB-001    | 검색 쿼리 괄호 불균형 (SQLite FTS5) | GET /rest/products/search?q=)))
+A10-ERRPRB-002    | ORM 오류 생성 함수 주입             | query: extractvalue(1,concat(...))
+A10-ERRPRB-003    | 백업/디버그 파일 확장자 접근         | GET /app.js.bak
+A10-HDRNOM-001    | 역순 Range 헤더 (end < start)      | Range: bytes=100-0
+A10-HDRNOM-002    | 비정상적으로 큰 단일 헤더 값         | X-Custom: <8KB+>
+────────────────────────────────────────────────────────────────────────────────
 """
 
 from __future__ import annotations
 
+import html
 import json
 import math
 import re
 import urllib.parse
 from collections import Counter
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any
 
 from owasp.types import Finding, ModuleScanResult, RequestContext, Severity
 
-OWASP_ID = "A10:2025"
+
+# ── 모듈 메타데이터 ──────────────────────────────────────────────────────────
+
 MODULE_ID = "a10"
-TITLE = "Server-Side Request Forgery (SSRF)"
-
-# ---------------------------------------------------------------------------
-# 점수 임계값
-# ---------------------------------------------------------------------------
-
-_SCORE_CRITICAL = 80
-_SCORE_HIGH     = 55
-_SCORE_MEDIUM   = 30
-
-# ---------------------------------------------------------------------------
-# SSRF-prone 파라미터 키워드 — 포함 시 param_bonus +15
-# ---------------------------------------------------------------------------
-
-_SSRF_PARAM_KEYWORDS: frozenset[str] = frozenset({
-    "url", "uri", "endpoint", "redirect", "next", "return", "dest",
-    "destination", "redir", "ref", "page", "link", "target", "path",
-    "src", "source", "proxy", "callback", "fetch", "load", "request",
-    "domain", "host", "server", "webhook", "import", "feed", "to",
-    "from", "origin", "service", "api", "remote", "external", "site",
-    "location", "forward", "open", "image", "resource", "file", "data",
-    "ftp", "sftp", "connect", "download", "upload", "read", "write",
-    "base", "href", "action", "template", "view", "preview", "render",
-})
-
-# ---------------------------------------------------------------------------
-# SSRF-prone 헤더 — 값을 스캔할 대상
-# ---------------------------------------------------------------------------
-
-_SSRF_HEADERS: frozenset[str] = frozenset({
-    "referer",
-    "origin",
-    "x-forwarded-for",
-    "x-forwarded-host",
-    "x-forwarded-proto",
-    "x-real-ip",
-    "x-original-url",
-    "x-rewrite-url",
-    "x-custom-ip-authorization",
-    "x-host",
-    "x-http-host-override",
-    "x-forwarded-server",
-    "forwarded",
-    "true-client-ip",
-    "cf-connecting-ip",
-    "content-location",
-    "link",
-})
-
-# ---------------------------------------------------------------------------
-# 규칙 구조
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True, slots=True)
-class _Rule:
-    rule_id: str
-    pattern: re.Pattern[str]
-    base_score: int
-    description: str
+OWASP_ID  = "A10:2025"
+TITLE     = "Mishandling of Exceptional Conditions"
 
 
-def _r(rule_id: str, pattern: str, base_score: int, description: str) -> _Rule:
-    return _Rule(
-        rule_id=rule_id,
-        pattern=re.compile(pattern, re.IGNORECASE | re.DOTALL),
-        base_score=base_score,
-        description=description,
-    )
-
-
-# ===========================================================================
-# 카테고리 1: 클라우드 메타데이터 서버 (A10-SSRF-001 ~ 010)
-# ===========================================================================
-
-_CLOUD_META_RULES: tuple[_Rule, ...] = (
-    # AWS EC2 IMDSv1 / Azure IMDS — 가장 빈번한 SSRF 표적
-    _r("A10-SSRF-001", r"169\.254\.169\.254", 90,
-       "AWS/Azure 인스턴스 메타데이터 서버(IMDS) 접근 시도"),
-
-    # GCP 메타데이터 내부 도메인
-    _r("A10-SSRF-002", r"metadata\.google\.internal", 90,
-       "GCP Compute Engine 메타데이터 내부 도메인 접근"),
-
-    # AWS ECS 태스크 메타데이터 (컨테이너 자격증명)
-    _r("A10-SSRF-003", r"169\.254\.170\.2", 88,
-       "AWS ECS 태스크 메타데이터 엔드포인트 접근 시도"),
-
-    # AWS IAM 자격증명 경로 — AccessKey/SecretKey 탈취 가능
-    _r("A10-SSRF-004", r"iam[/\\]security[-_]?credentials", 95,
-       "AWS IAM 자격증명 탈취 시도 (Access Key 유출 위험)"),
-
-    # AWS EC2 메타데이터 API 경로 키워드
-    _r("A10-SSRF-005", r"latest[/\\]meta[-_]?data", 90,
-       "AWS EC2 메타데이터 API 경로 직접 접근"),
-
-    # GCP 메타데이터 API v1
-    _r("A10-SSRF-006", r"computeMetadata[/\\]v1", 90,
-       "GCP Compute Engine 메타데이터 API v1 접근"),
-
-    # Azure IMDS — api-version 파라미터 포함 시 식별
-    _r("A10-SSRF-007", r"169\.254\.169\.254.{0,80}(metadata|api-version)", 88,
-       "Azure IMDS — Metadata: true 헤더 없이도 경로 패턴 탐지"),
-
-    # Alibaba Cloud 메타데이터 (100.100.100.200)
-    _r("A10-SSRF-008", r"100\.100\.100\.200", 90,
-       "Alibaba Cloud ECS 메타데이터 서버 접근 시도"),
-
-    # Oracle Cloud IMDS
-    _r("A10-SSRF-009", r"192\.0\.0\.192|169\.254\.0\.2", 88,
-       "Oracle Cloud 인스턴스 메타데이터 서버 접근 시도"),
-
-    # Digital Ocean metadata
-    _r("A10-SSRF-010", r"169\.254\.169\.254.{0,40}(digitalocean|droplet)", 85,
-       "DigitalOcean Droplet 메타데이터 접근 시도"),
-)
-
-# ===========================================================================
-# 카테고리 2: 내부망(RFC 1918) 직접 접근 (A10-SSRF-011 ~ 017)
-# ===========================================================================
-
-_INTERNAL_NET_RULES: tuple[_Rule, ...] = (
-    # 루프백 — http/https/ftp 모두
-    _r("A10-SSRF-011",
-       r"(https?|ftp)://(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0|0/)",
-       80, "루프백(Loopback) 주소를 통한 내부 서버 직접 접근"),
-
-    # 192.168.x.x
-    _r("A10-SSRF-012",
-       r"(https?|ftp)://192\.168\.[0-9]{1,3}\.[0-9]{1,3}",
-       65, "RFC 1918 사설망 192.168.x.x 내부 호스트 접근 시도"),
-
-    # 10.x.x.x
-    _r("A10-SSRF-013",
-       r"(https?|ftp)://10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}",
-       65, "RFC 1918 사설망 10.x.x.x 내부 호스트 접근 시도"),
-
-    # 172.16-31.x.x
-    _r("A10-SSRF-014",
-       r"(https?|ftp)://172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3}",
-       65, "RFC 1918 사설망 172.16-31.x.x 내부 호스트 접근 시도"),
-
-    # IPv6 루프백 (::1 다양한 표기)
-    _r("A10-SSRF-015",
-       r"\[::1\]|\[0:0:0:0:0:0:0:1\]|%5B::1%5D",
-       72, "IPv6 루프백 주소(::1) 접근 시도"),
-
-    # 내부 전용 도메인 TLD
-    _r("A10-SSRF-016",
-       r"(https?|ftp)://[^\s/\"']*\.(internal|local|intranet|corp|private|lan|home|localdomain)\b",
-       60, "내부 전용 도메인(internal/local/corp 등) 접근 시도"),
-
-    # Link-Local 전체 대역 (169.254.x.x — 메타데이터 포함)
-    _r("A10-SSRF-017",
-       r"(https?|ftp)://169\.254\.[0-9]{1,3}\.[0-9]{1,3}",
-       75, "Link-Local 주소(169.254.x.x) 접근 시도"),
-)
-
-# ===========================================================================
-# 카테고리 3: 비표준 프로토콜 남용 (A10-SSRF-018 ~ 027)
-# ===========================================================================
-
-_PROTOCOL_RULES: tuple[_Rule, ...] = (
-    # ── [핵심 추가] ftp:// 독립 탐지 ──────────────────────────────────────
-    # 웹 앱 요청에서 ftp:// 는 거의 항상 SSRF 시도이다.
-    # base 60: param_bonus(+15) 포함 → HIGH(75)/CRITICAL(80) 로 승격
-    # ftp://내부IP 는 A10-SSRF-011~014 에서 더 높은 점수로 이미 탐지된다.
-    _r("A10-SSRF-018", r"ftp://[^\s\"'<>]{3,}", 60,
-       "FTP 프로토콜을 통한 서버 측 리소스 접근 시도 (SSRF via ftp://)"),
-
-    # file:// — 로컬 파일 시스템 읽기
-    _r("A10-SSRF-019", r"file://", 85,
-       "file:// 프로토콜을 통한 로컬 파일 시스템 접근"),
-
-    # gopher:// — Redis/Memcached 등 내부 서비스 원시 통신
-    _r("A10-SSRF-020", r"gopher://", 88,
-       "gopher:// 프로토콜을 통한 내부 서비스 원시 TCP 통신 (Redis/Memcached 공격)"),
-
-    # dict:// — 포트 스캔·배너 수집
-    _r("A10-SSRF-021", r"dict://", 75,
-       "dict:// 프로토콜을 통한 내부 서비스 포트 스캔"),
-
-    # ldap:// — 내부 디렉터리 서비스 접근
-    _r("A10-SSRF-022", r"(ldap|ldaps)://", 72,
-       "LDAP 프로토콜을 통한 내부 디렉터리 서비스 접근"),
-
-    # sftp/tftp/ssh — 파일 전송 프로토콜 남용
-    _r("A10-SSRF-023", r"(sftp|tftp|ssh)://", 70,
-       "파일 전송 프로토콜(sftp/tftp/ssh)을 통한 내부망 접근"),
-
-    # telnet:// — 내부 서비스 직접 연결 시도
-    _r("A10-SSRF-024", r"telnet://", 75,
-       "telnet:// 프로토콜을 통한 내부 서비스 직접 연결 시도"),
-
-    # netdoc:// — Java 구현체 내부 리소스 접근
-    _r("A10-SSRF-025", r"netdoc://", 75,
-       "netdoc:// 프로토콜을 통한 내부 리소스 접근"),
-
-    # jar:// — Java JAR 처리 중 SSRF
-    _r("A10-SSRF-026", r"jar:(https?|ftp|file)://", 78,
-       "jar:// 래핑 프로토콜을 통한 SSRF (Java 환경)"),
-
-    # data: URI — 클라이언트/서버 양쪽에서 악용 가능
-    _r("A10-SSRF-027", r"data:(text|application|image)/[a-z0-9+\-]+;", 65,
-       "data: URI 스킴 삽입 — 서버 측 렌더러/파서 악용 가능"),
-)
-
-# ===========================================================================
-# 카테고리 4: IP 주소 인코딩 우회 (A10-SSRF-028 ~ 033)
-# ===========================================================================
-
-_ENCODE_BYPASS_RULES: tuple[_Rule, ...] = (
-    # 16진수 IP (0x7f000001 = 127.0.0.1)
-    _r("A10-SSRF-028",
-       r"(https?|ftp)://0x[0-9a-fA-F]{4,8}(/|\?|$|\s|:)",
-       85, "16진수 인코딩 IP 주소 필터 우회 (0x7f000001 → 127.0.0.1)"),
-
-    # 10진수 IP (2130706433 = 127.0.0.1)
-    _r("A10-SSRF-029",
-       r"(https?|ftp)://[0-9]{8,10}(/|\?|$|\s|:)",
-       80, "10진수(Decimal) 인코딩 IP 주소 필터 우회 (2130706433 → 127.0.0.1)"),
-
-    # 8진수 IP (0177.0.0.1 = 127.0.0.1)
-    _r("A10-SSRF-030",
-       r"(https?|ftp)://0[0-9]{2,3}\.[0-9]",
-       78, "8진수(Octal) 인코딩 IP 주소 필터 우회 (0177.0.0.1 → 127.0.0.1)"),
-
-    # URL auth 필드 우회 (http://evil@192.168.1.1)
-    _r("A10-SSRF-031",
-       r"(https?|ftp)://[^\s@]{1,100}@(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.)",
-       82, "URL 자격증명 필드를 이용한 내부망 접근 우회 (http://evil@192.168.x.x)"),
-
-    # 단축 IP 표기 (http://127.1 = 127.0.0.1)
-    _r("A10-SSRF-032",
-       r"(https?|ftp)://127\.[0-9]+(/|\?|$|\s|:)",
-       76, "단축 표기 IP(127.1 → 127.0.0.1) 파서 우회"),
-
-    # IPv4-mapped IPv6 루프백 (::ffff:127.0.0.1)
-    _r("A10-SSRF-033",
-       r"\[::ffff:(127\.|192\.168\.|10\.|0\.0\.0\.0)",
-       82, "IPv4-mapped IPv6 표기를 이용한 루프백/내부망 우회 (::ffff:127.0.0.1)"),
-)
-
-# ===========================================================================
-# 카테고리 5: XML/XXE → SSRF (A10-SSRF-034 ~ 035)
-# ===========================================================================
-
-_XXE_SSRF_RULES: tuple[_Rule, ...] = (
-    # XXE 엔티티 선언에 외부 URL 포함 — XML 파서가 서버 측에서 URL 접근
-    _r("A10-SSRF-034",
-       r"<!ENTITY\s+\w+\s+(SYSTEM|PUBLIC)\s+[\"'](https?|ftp|file|gopher|dict)://",
-       90, "XML XXE 외부 엔티티 선언 — 서버 측 URL 접근 유발 (SSRF via XXE)"),
-
-    # DOCTYPE SYSTEM 선언 (간이 탐지)
-    _r("A10-SSRF-035",
-       r"<!DOCTYPE\s+\w+\s+(SYSTEM|PUBLIC)\s+[\"'](https?|ftp|file)://",
-       85, "XML DOCTYPE SYSTEM/PUBLIC 외부 리소스 선언 (XXE SSRF)"),
-)
-
-# ===========================================================================
-# 카테고리 6: 리다이렉트 파라미터 남용 (A10-SSRF-036 ~ 037)
-# ===========================================================================
-
-_REDIRECT_RULES: tuple[_Rule, ...] = (
-    # SSRF-prone 파라미터에 절대 URL 지정
-    _r("A10-SSRF-036",
-       r"(url|uri|redirect|next|return|dest(?:ination)?|redir|ref|page|link|target|"
-       r"src|source|proxy|callback|fetch|to|from|open|remote|service|resource|file|"
-       r"ftp|connect|download|base|href|action|template|view|preview)\s*=\s*"
-       r"(https?|ftp|file|gopher|dict|ldap|telnet|data)://",
-       50, "리다이렉트/URL 파라미터에 절대 URL 삽입 (Open Redirect → SSRF 체인)"),
-
-    # 프로토콜 상대 URL (//) — 도메인 제어 우회
-    _r("A10-SSRF-037",
-       r"(url|uri|redirect|next|return|dest(?:ination)?|redir|ref|page|link|target)\s*=\s*//[^/\s]",
-       45, "프로토콜 상대 URL(//) 리다이렉트 — 외부 도메인 제어 가능"),
-)
-
-# ===========================================================================
-# 카테고리 7: 기타 위험 패턴 (A10-SSRF-038)
-# ===========================================================================
-
-_MISC_RULES: tuple[_Rule, ...] = (
-    # CRLF 인젝션을 통한 HTTP 응답 스플리팅 / SSRF 우회
-    _r("A10-SSRF-038",
-       r"(https?|ftp)://[^\s\"'<>]*(%0d%0a|%0a|%0d|\r\n|\n)[\s\S]*?(get|post|host)[\s\S]*?:",
-       85, "CRLF 인젝션이 포함된 URL — HTTP 응답 스플리팅 또는 SSRF 우회 시도"),
-)
-
-# 규칙 전체 통합 (카테고리별 순서 유지)
-_ALL_RULES: tuple[_Rule, ...] = (
-    *_CLOUD_META_RULES,
-    *_INTERNAL_NET_RULES,
-    *_PROTOCOL_RULES,
-    *_ENCODE_BYPASS_RULES,
-    *_XXE_SSRF_RULES,
-    *_REDIRECT_RULES,
-    *_MISC_RULES,
-)
-
-# ===========================================================================
-# 엔트로피 기반 점수 계산
-# ===========================================================================
+# ── Shannon Entropy & 점수 계산 ──────────────────────────────────────────────
 
 def _shannon_entropy(s: str) -> float:
-    """Shannon Entropy(비트/문자) 계산.
-
-    0.0~2.0 : 단조로운 값 (127.0.0.1, /etc/passwd 등)
-    2.0~4.0 : 일반 URL 경로
-    4.5~6.0 : Base64 · 이중 URL 인코딩 등 높은 난독화
-    """
-    if len(s) < 4:
+    if not s:
         return 0.0
     counts = Counter(s)
-    length = len(s)
-    return -sum((c / length) * math.log2(c / length) for c in counts.values())
+    n = len(s)
+    return -sum((c / n) * math.log2(c / n) for c in counts.values())
 
 
-def _entropy_bonus(matched_value: str) -> int:
-    """탐지 값의 Shannon Entropy → 가산점 반환 (난독화 우회 탐지 강화)."""
-    entropy = _shannon_entropy(matched_value)
-    if entropy >= 5.5:    # 강한 난독화 (Base64, 이중 URL 인코딩)
-        return 20
-    elif entropy >= 4.5:  # URL 인코딩, 부분 난독화
-        return 12
-    elif entropy >= 3.5:  # 일반 인코딩 혼합
-        return 5
-    return 0
+def _entropy_bonus(entropy: float) -> float:
+    """고엔트로피(난독화/무작위) 페이로드에 추가 점수."""
+    if entropy >= 4.5:
+        return 0.5
+    if entropy >= 3.5:
+        return 0.25
+    return 0.0
 
 
-def _score_to_severity(score: int) -> Severity:
-    """총점(0~100) → Severity 변환."""
-    if score >= _SCORE_CRITICAL:
+def _score_to_severity(score: float) -> Severity:
+    if score >= 3.5:
         return Severity.CRITICAL
-    if score >= _SCORE_HIGH:
+    if score >= 2.5:
         return Severity.HIGH
-    if score >= _SCORE_MEDIUM:
+    if score >= 1.5:
         return Severity.MEDIUM
     return Severity.LOW
 
-# ===========================================================================
-# 디코딩 헬퍼 — URL 인코딩 우회 대응
-# ===========================================================================
 
-def _decode_layers(value: str) -> list[str]:
-    """원본 + 1~2회 URL 디코딩 변형 반환 (이중 인코딩 우회 탐지)."""
-    variants: list[str] = [value]
-    try:
-        d1 = urllib.parse.unquote(value)
-        if d1 != value:
-            variants.append(d1)
-        d2 = urllib.parse.unquote(d1)
-        if d2 != d1:
-            variants.append(d2)
-    except Exception:
-        pass
-    return variants
+# ── 규칙 데이터클래스 ────────────────────────────────────────────────────────
 
-# ===========================================================================
-# 스캔 핵심 로직
-# ===========================================================================
-
-def _param_bonus(label: str) -> int:
-    """라벨이 SSRF-prone 키워드를 포함하면 +15 반환."""
-    lower = label.lower()
-    for kw in _SSRF_PARAM_KEYWORDS:
-        if kw in lower:
-            return 15
-    return 0
+@dataclass(frozen=True)
+class _Rule:
+    rule_id:     str
+    description: str
+    base_score:  float
+    pattern:     re.Pattern[str] | None = None
 
 
-_RULE_CATEGORY: dict[str, str] = {
-    "A10-SSRF-001": "클라우드 메타데이터(AWS/Azure)",
-    "A10-SSRF-002": "클라우드 메타데이터(GCP)",
-    "A10-SSRF-003": "클라우드 메타데이터(ECS)",
-    "A10-SSRF-004": "IAM 자격증명 탈취",
-    "A10-SSRF-005": "AWS 메타데이터 API",
-    "A10-SSRF-006": "GCP 메타데이터 API",
-    "A10-SSRF-007": "Azure IMDS",
-    "A10-SSRF-008": "Alibaba Cloud 메타데이터",
-    "A10-SSRF-009": "Oracle Cloud 메타데이터",
-    "A10-SSRF-010": "DigitalOcean 메타데이터",
-    "A10-SSRF-011": "루프백 주소 접근",
-    "A10-SSRF-012": "내부망(192.168.x.x)",
-    "A10-SSRF-013": "내부망(10.x.x.x)",
-    "A10-SSRF-014": "내부망(172.16-31.x.x)",
-    "A10-SSRF-015": "IPv6 루프백(::1)",
-    "A10-SSRF-016": "내부 도메인 접근",
-    "A10-SSRF-017": "Link-Local 주소",
-    "A10-SSRF-018": "FTP 프로토콜 접근",          # ← 신규: ftp:// 독립 탐지
-    "A10-SSRF-019": "파일 시스템 접근(file://)",
-    "A10-SSRF-020": "gopher:// 프로토콜",
-    "A10-SSRF-021": "dict:// 프로토콜",
-    "A10-SSRF-022": "LDAP 프로토콜",
-    "A10-SSRF-023": "sftp/tftp/ssh 프로토콜",
-    "A10-SSRF-024": "telnet:// 프로토콜",          # ← 신규
-    "A10-SSRF-025": "netdoc:// 프로토콜",
-    "A10-SSRF-026": "jar:// 프로토콜",
-    "A10-SSRF-027": "data: URI 스킴",              # ← 신규
-    "A10-SSRF-028": "16진수 IP 우회",
-    "A10-SSRF-029": "10진수 IP 우회",
-    "A10-SSRF-030": "8진수 IP 우회",
-    "A10-SSRF-031": "URL 자격증명 우회",
-    "A10-SSRF-032": "단축 IP 표기 우회",
-    "A10-SSRF-033": "IPv4-mapped IPv6 우회",        # ← 신규
-    "A10-SSRF-034": "XML XXE → SSRF",              # ← 신규
-    "A10-SSRF-035": "XML DOCTYPE SSRF",             # ← 신규
-    "A10-SSRF-036": "리다이렉트 파라미터 SSRF",
-    "A10-SSRF-037": "프로토콜 상대 URL",
-    "A10-SSRF-038": "CRLF 인젝션 우회",             # ← 신규
+# ── 카테고리 레이블 ──────────────────────────────────────────────────────────
+
+_CATEGORY_LABEL: dict[str, str] = {
+    "UNDEF":    "Undefined Identifier",
+    "PROTO":    "Prototype Pollution",
+    "BOUND":    "Boundary / Integer Overflow",
+    "NULLB":    "Null-Byte Injection",
+    "FMT":      "Format String Probe",
+    "DEEP":     "Deep Nesting / DoS",
+    "TYPECONF": "Type Confusion",
+    "ERRPRB":   "Error Probe",
+    "HDRNOM":   "Header Anomaly",
 }
 
 
-def _ssrf_category_short(rule_id: str) -> str:
-    return _RULE_CATEGORY.get(rule_id, "SSRF 위조 요청")
+def _category_label(rule_id: str) -> str:
+    """'A10-UNDEF-001' → 'Undefined Identifier'"""
+    parts = rule_id.split("-")
+    if len(parts) >= 3:
+        return _CATEGORY_LABEL.get(parts[1], parts[1])
+    return rule_id
 
 
-def _scan_value(
-    label: str,
-    value: str,
-    rules: tuple[_Rule, ...] = _ALL_RULES,
-) -> list[Finding]:
-    """단일 (label, value) 쌍에 지정 규칙을 적용하고 최고점 Finding 1개를 반환한다.
+# ── 규칙 목록 ────────────────────────────────────────────────────────────────
 
-    최고점 1개 반환 전략:
-      → 같은 입력값에서 여러 규칙이 매칭돼도 가장 위험한 1건만 보고.
-      → main.py WAF alert 단건 경로 → "규칙: A10-SSRF-018 · 위치: SSRF — query.ftp"
-    """
-    candidates: list[tuple[int, Finding]] = []
-    variants   = _decode_layers(value)
-    p_bonus    = _param_bonus(label)
+# ─── UNDEF: JS 런타임 식별자를 리소스 ID로 사용 ──────────────────────────────
+# Juice Shop: GET /api/Products/undefined → Node.js TypeError (unhandled)
+_UNDEF_RULES: list[_Rule] = [
+    _Rule(
+        "A10-UNDEF-001",
+        "'undefined'를 리소스 ID로 사용 — Node.js TypeError 유발 (CWE-391)",
+        base_score=2.5,
+        pattern=re.compile(r"(?:^|/)undefined(?:/|$)", re.IGNORECASE),
+    ),
+    _Rule(
+        "A10-UNDEF-002",
+        "'NaN' 또는 'Infinity'를 리소스 ID로 사용 — 수치 강제 변환 실패 (CWE-390)",
+        base_score=2.5,
+        pattern=re.compile(r"(?:^|/)(?:NaN|-?Infinity)(?:/|$)", re.IGNORECASE),
+    ),
+    _Rule(
+        "A10-UNDEF-003",
+        "'null'을 리소스 ID로 사용 — Null 포인터 참조 예외 (CWE-476)",
+        base_score=2.0,
+        pattern=re.compile(r"(?:^|/)null(?:/|$)", re.IGNORECASE),
+    ),
+]
 
-    for rule in rules:
-        for variant in variants:
-            m = rule.pattern.search(variant)
-            if m:
-                matched = m.group(0)[:200]
-                e_bonus = _entropy_bonus(matched)
-                total   = min(100, rule.base_score + e_bonus + p_bonus)
-                sev     = _score_to_severity(total)
-                cat     = _ssrf_category_short(rule.rule_id)
-                candidates.append((total, Finding(
-                    rule_id=rule.rule_id,
-                    evidence=(
-                        f"[A10:SSRF — {cat}] "
-                        f"{rule.description} | "
-                        f"탐지값: {matched!r} | "
-                        f"총점: {total}점 "
-                        f"(기본 {rule.base_score} + 엔트로피 {e_bonus} + 파라미터 {p_bonus})"
-                    ),
-                    severity=sev,
-                    location=f"SSRF — {label}",
-                )))
-                break  # 동일 규칙 variant 중복 방지
+# ─── PROTO: 프로토타입 오염 (Node.js / JavaScript) ───────────────────────────
+# Juice Shop: POST /api/* body {"__proto__":{"isAdmin":true}} → crash or priv-esc
+_PROTO_RULES: list[_Rule] = [
+    _Rule(
+        "A10-PROTO-001",
+        "__proto__ 키 주입 — JavaScript 프로토타입 오염 (CWE-1321)",
+        base_score=3.5,
+        pattern=re.compile(r"__proto__"),
+    ),
+    _Rule(
+        "A10-PROTO-002",
+        "constructor.prototype 체인 조작 — JS 표기법과 JSON 키 중첩 모두 탐지 (CWE-1321)",
+        base_score=3.5,
+        # JS: constructor.prototype  /  JSON: "constructor":{"prototype":...}
+        pattern=re.compile(
+            r'constructor\s*[.\[]\s*prototype'
+            r'|"constructor"\s*:\s*\{[^}]{0,100}"prototype"',
+        ),
+    ),
+    _Rule(
+        "A10-PROTO-003",
+        "__defineGetter__/__defineSetter__ — 레거시 프로토타입 재정의 (CWE-1321)",
+        base_score=3.0,
+        pattern=re.compile(r"__define(?:Getter|Setter)__"),
+    ),
+]
 
-    if not candidates:
-        return []
+# ─── BOUND: 경계값 / 정수 오버플로 ──────────────────────────────────────────
+# Juice Shop: GET /api/Products/-1, /api/Products/9007199254740993
+_BOUND_PATH_RULES: list[_Rule] = [
+    _Rule(
+        "A10-BOUND-001",
+        "JS MAX_SAFE_INTEGER(2^53) 초과 ID — 정수 정밀도 손실, ORM 오류 (CWE-190)",
+        base_score=2.5,
+        pattern=re.compile(r"(?:^|/)(?:9007199254740(?:99[3-9]|\d{4,})|\d{17,})(?:/|$)"),
+    ),
+    _Rule(
+        "A10-BOUND-002",
+        "음수 정수 리소스 ID — ORM '행 없음' 예외 미처리 (CWE-391)",
+        base_score=2.0,
+        pattern=re.compile(r"(?:^|/)-[1-9]\d*(?:/|$)"),
+    ),
+    _Rule(
+        "A10-BOUND-003",
+        "INT32 경계값(±2147483647/2147483648) — 부호 오버플로 (CWE-190)",
+        base_score=2.5,
+        pattern=re.compile(r"(?:^|/)(?:2147483648|2147483647|4294967295|4294967296)(?:/|$)"),
+    ),
+    _Rule(
+        "A10-BOUND-004",
+        "0을 리소스 ID로 사용 — ORM 결과 없음 미처리 예외 (CWE-391)",
+        base_score=1.5,
+        pattern=re.compile(r"(?:/api/|/rest/)[^/?#]+/0(?:/|$|\?)"),
+    ),
+]
 
-    best_score = max(score for score, _ in candidates)
-    best = [f for score, f in candidates if score == best_score]
-    return [best[0]]  # 동점이면 규칙 순서(위험도 높은 순) 중 첫 번째
+# ─── NULLB: Null 바이트 주입 ─────────────────────────────────────────────────
+_NULLB_RULES: list[_Rule] = [
+    _Rule(
+        "A10-NULLB-001",
+        "URL 인코딩된 null 바이트(%00) — C 문자열 종료, 검증 우회 (CWE-626)",
+        base_score=2.5,
+        pattern=re.compile(r"%00", re.IGNORECASE),
+    ),
+    _Rule(
+        "A10-NULLB-002",
+        "리터럴 null 바이트(\\x00) in body — 파서 크래시, 문자열 경계 위반 (CWE-626)",
+        base_score=2.5,
+        pattern=re.compile(r"\x00"),
+    ),
+    _Rule(
+        "A10-NULLB-003",
+        "Overlong UTF-8 null 인코딩(%c0%80) — 유니코드 우회 공격 (CWE-116)",
+        base_score=2.5,
+        pattern=re.compile(r"%c0%80", re.IGNORECASE),
+    ),
+]
 
-# ===========================================================================
-# 스캔 대상 수집
-# ===========================================================================
+# ─── FMT: 형식 문자열 프로브 ─────────────────────────────────────────────────
+_FMT_RULES: list[_Rule] = [
+    _Rule(
+        "A10-FMT-001",
+        "Printf 형식 지정자 연속(%s%d%n%x) — C/C++ 백엔드 메모리 누출·크래시 (CWE-134)",
+        base_score=2.0,
+        pattern=re.compile(r"(?:%[sdnxXpoufeEgGi]){2,}"),
+    ),
+    _Rule(
+        "A10-FMT-002",
+        "Node.js util.format 지정자 연속(%s%d%i%o) — 민감 정보 로그 인젝션 (CWE-117)",
+        base_score=1.5,
+        pattern=re.compile(r"(?:%[sdiojO]\s*){3,}"),
+    ),
+]
 
-# (label, value, rules) 튜플
-_ScanTarget = tuple[str, str, tuple[_Rule, ...]]
+# ─── TYPECONF: 타입 혼동 공격 ────────────────────────────────────────────────
+# Juice Shop: POST /rest/user/login {"email":{"$gt":""},"password":""}
+_TYPECONF_BODY_RULES: list[_Rule] = [
+    _Rule(
+        "A10-TYPECONF-001",
+        "NoSQL 연산자를 스칼라 필드 값으로 주입({\"$gt\":\"\"}) — Sequelize 타입 불일치 크래시 (CWE-843)",
+        base_score=3.0,
+        pattern=re.compile(
+            r'"\s*:\s*\{\s*"\$(?:gt|lt|gte|lte|ne|eq|in|nin|exists|regex|where)\b',
+            re.IGNORECASE,
+        ),
+    ),
+    _Rule(
+        "A10-TYPECONF-002",
+        "인증 필드에 오브젝트 주입({\"password\":{...}}) — 로그인 핸들러 타입 강제 변환 예외 (CWE-843)",
+        base_score=2.5,
+        pattern=re.compile(
+            r'"(?:password|passwd|username|email|login|token|id|userId|user_id)"\s*:\s*\{',
+        ),
+    ),
+]
 
+# ─── ERRPRB: 오류 프로브 / 알려진 크래시 트리거 ──────────────────────────────
+# Juice Shop: GET /rest/products/search?q=))) → SQLite FTS5 파서 오류
+_ERRPRB_SEARCH_RULES: list[_Rule] = [
+    _Rule(
+        "A10-ERRPRB-001",
+        "검색 쿼리 내 괄호 불균형 — SQLite FTS5 파서 오류 → Sequelize 미처리 예외 (CWE-391)",
+        base_score=2.5,
+        pattern=re.compile(r"\){2,}|\({2,}"),
+    ),
+    _Rule(
+        "A10-ERRPRB-002",
+        "ORM 오류 생성 함수 주입(extractvalue/updatexml) — DB 오류 메시지 정보 노출 (CWE-209)",
+        base_score=2.5,
+        pattern=re.compile(r"extractvalue\s*\(|updatexml\s*\(|exp\s*\(\s*~", re.IGNORECASE),
+    ),
+]
 
-def _collect_targets(ctx: RequestContext) -> list[_ScanTarget]:
-    """요청 전체에서 (label, value, rules) 스캔 대상을 추출한다.
-
-    query_raw / body: 리다이렉트·XXE 규칙만 적용해 중복 Finding 방지.
-    파싱된 개별 파라미터: ALL_RULES 적용.
-    Cookie: SSRF-prone 쿠키명에서 URL 패턴 스캔.
-    """
-    targets: list[_ScanTarget] = []
-
-    # ── 1. URL 경로 ──────────────────────────────────────────────────────────
-    targets.append(("path", ctx.path, _ALL_RULES))
-
-    # ── 2. 쿼리스트링 ────────────────────────────────────────────────────────
-    if ctx.query_string:
-        parsed_ok = False
-        try:
-            parsed = urllib.parse.parse_qs(ctx.query_string, keep_blank_values=True)
-            for key, values in parsed.items():
-                for v in values:
-                    targets.append((f"query.{key}", v, _ALL_RULES))
-            parsed_ok = bool(parsed)
-        except Exception:
-            pass
-
-        raw_rules: tuple[_Rule, ...] = (
-            _ALL_RULES if not parsed_ok
-            else (*_REDIRECT_RULES, *_XXE_SSRF_RULES)
-        )
-        targets.append(("query_raw", ctx.query_string, raw_rules))
-
-    # ── 3. 요청 바디 ─────────────────────────────────────────────────────────
-    if ctx.body_preview:
-        body = ctx.body_preview
-        ct   = ctx.headers.get("content-type", "").lower()
-
-        # 3-a. JSON 바디: 재귀 평탄화 후 리프 값 각각 스캔
-        json_ok = False
-        if "json" in ct or body.lstrip().startswith(("{", "[")):
-            try:
-                obj = json.loads(body)
-                for k, v in _flatten_json(obj):
-                    targets.append((f"body.{k}", str(v), _ALL_RULES))
-                json_ok = True
-            except Exception:
-                pass
-
-        # 3-b. URL-encoded 폼 바디
-        form_ok = False
-        if "application/x-www-form-urlencoded" in ct:
-            try:
-                parsed_body = urllib.parse.parse_qs(body, keep_blank_values=True)
-                for key, values in parsed_body.items():
-                    for v in values:
-                        targets.append((f"form.{key}", v, _ALL_RULES))
-                form_ok = bool(parsed_body)
-            except Exception:
-                pass
-
-        # 3-c. XML/XXE 바디: 엔티티 선언 포함 여부 탐지
-        if "xml" in ct or body.lstrip().startswith("<"):
-            targets.append(("body_xml", body, (*_XXE_SSRF_RULES, *_PROTOCOL_RULES)))
-
-        # 3-d. raw 바디: JSON/폼 파싱 실패 시 전체 대상, 성공 시 리다이렉트·XXE만
-        if not json_ok and not form_ok:
-            targets.append(("body", body, _ALL_RULES))
-        else:
-            targets.append(("body", body, (*_REDIRECT_RULES, *_XXE_SSRF_RULES)))
-
-    # ── 4. SSRF-prone 헤더 ───────────────────────────────────────────────────
-    for name, val in ctx.headers.items():
-        if name.lower() in _SSRF_HEADERS:
-            targets.append((f"header.{name}", val, _ALL_RULES))
-
-    # ── 5. Cookie 헤더 (쿠키명이 SSRF 키워드와 일치하는 값 스캔) ────────────────
-    cookie_raw = ctx.headers.get("cookie", "")
-    if cookie_raw:
-        try:
-            for part in cookie_raw.split(";"):
-                part = part.strip()
-                if "=" in part:
-                    cname, _, cval = part.partition("=")
-                    cname = cname.strip().lower()
-                    cval  = cval.strip()
-                    for kw in _SSRF_PARAM_KEYWORDS:
-                        if kw in cname and cval:
-                            targets.append((f"cookie.{cname}", cval, _ALL_RULES))
-                            break
-        except Exception:
-            pass
-
-    return targets
+_ERRPRB_PATH_RULES: list[_Rule] = [
+    _Rule(
+        "A10-ERRPRB-003",
+        "백업/디버그 파일 확장자 접근 — 핸들러 없음 → 500 또는 소스 노출 (CWE-209)",
+        base_score=2.0,
+        pattern=re.compile(
+            r"\.(?:bak|backup|orig|old|save|swp|tmp|temp|sql|dump|log)$",
+            re.IGNORECASE,
+        ),
+    ),
+]
 
 
-def _flatten_json(obj: object, prefix: str = "") -> list[tuple[str, object]]:
-    """중첩 JSON 객체를 재귀 평탄화하여 (경로, 리프값) 목록 반환."""
-    items: list[tuple[str, object]] = []
+# ── 프로그래밍 방식 검사 ─────────────────────────────────────────────────────
+
+def _json_max_depth(obj: Any, current: int = 0) -> int:
+    """JSON 오브젝트의 최대 중첩 깊이를 재귀적으로 계산한다."""
     if isinstance(obj, dict):
-        for k, v in obj.items():
-            key = f"{prefix}.{k}" if prefix else str(k)
-            items.extend(_flatten_json(v, key))
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            items.extend(_flatten_json(v, f"{prefix}[{i}]"))
+        if not obj:
+            return current
+        return max(_json_max_depth(v, current + 1) for v in obj.values())
+    if isinstance(obj, list):
+        if not obj:
+            return current
+        return max(_json_max_depth(item, current + 1) for item in obj)
+    return current
+
+
+def _check_json_depth(body: str, location: str) -> Finding | None:
+    """JSON 중첩 깊이 ≥ 15 이면 Finding 반환 (스택 오버플로/DoS 위험)."""
+    stripped = body.strip()
+    if not stripped or stripped[0] not in ("{", "["):
+        return None
+    try:
+        obj = json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    depth = _json_max_depth(obj)
+    if depth < 15:
+        return None
+    if depth >= 30:
+        score = 4.0
+    elif depth >= 20:
+        score = 3.0
     else:
-        items.append((prefix, obj))
-    return items
-
-
-def _deduplicate(findings: Sequence[Finding]) -> tuple[Finding, ...]:
-    """동일 rule_id 는 가장 심각한 Finding 하나만 유지한다."""
-    _SEV_RANK = {
-        Severity.CRITICAL: 4, Severity.HIGH: 3,
-        Severity.MEDIUM: 2,   Severity.LOW: 1, Severity.NONE: 0,
-    }
-    best: dict[str, Finding] = {}
-    for f in findings:
-        existing = best.get(f.rule_id)
-        if existing is None or _SEV_RANK[f.severity] > _SEV_RANK[existing.severity]:
-            best[f.rule_id] = f
-    return tuple(best.values())
-
-# ===========================================================================
-# 차단 HTML 페이지 — SSRF 전용
-# ===========================================================================
-
-_SSRF_CATEGORY_MAP: dict[str, str] = _RULE_CATEGORY
-
-_SEV_RANK_BLOCK: dict[Severity, int] = {
-    Severity.CRITICAL: 5, Severity.HIGH: 4,
-    Severity.MEDIUM: 3,   Severity.LOW: 2, Severity.NONE: 1,
-}
-
-_SEV_CSS_BLOCK: dict[Severity, tuple[str, str]] = {
-    Severity.CRITICAL: ("CRITICAL", "sev-critical"),
-    Severity.HIGH:     ("HIGH",     "sev-high"),
-    Severity.MEDIUM:   ("MEDIUM",   "sev-medium"),
-    Severity.LOW:      ("LOW",      "sev-low"),
-    Severity.NONE:     ("NONE",     "sev-low"),
-}
-
-_BLOCK_PAGE_CSS = """
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{
-    min-height:100vh;display:flex;align-items:center;justify-content:center;
-    padding:2rem;
-    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-    color:#f0f4fc;
-    background:#060912;
-    background:
-      radial-gradient(ellipse 110% 85% at 5% -15%,rgba(59,130,246,.28),transparent 52%),
-      radial-gradient(ellipse 90% 70% at 95% 5%,rgba(248,113,113,.22),transparent 48%),
-      linear-gradient(168deg,#0d1326 0%,#080c18 38%,#060912 100%);
-  }
-  .card{
-    background:linear-gradient(155deg,rgba(30,38,62,.88),rgba(14,18,32,.96));
-    border:1px solid rgba(248,113,113,.4);border-radius:16px;
-    padding:2rem 2.5rem;max-width:660px;width:100%;
-    box-shadow:0 8px 40px rgba(248,113,113,.12),0 4px 24px rgba(0,0,0,.45);
-  }
-  .icon{font-size:2.75rem;margin-bottom:.55rem}
-  h1{font-size:1.45rem;font-weight:800;color:#fca5a5;
-     margin-bottom:.3rem;letter-spacing:-.03em;line-height:1.3}
-  .subtitle{font-size:.875rem;color:#8b9cc4;margin-bottom:1.25rem;line-height:1.6}
-  .category-badge{
-    display:inline-flex;align-items:center;gap:.4rem;
-    padding:.38rem .9rem;margin-bottom:1.25rem;
-    background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.32);
-    border-radius:999px;font-size:.82rem;font-weight:700;color:#fca5a5;
-  }
-  .score-bar{display:flex;align-items:center;gap:.75rem;margin-bottom:1.1rem}
-  .score-label{font-size:.72rem;color:#8b9cc4;white-space:nowrap}
-  .score-track{flex:1;height:8px;background:rgba(255,255,255,.08);
-               border-radius:999px;overflow:hidden}
-  .score-fill{height:100%;border-radius:999px;transition:width .4s}
-  .score-fill.critical{background:linear-gradient(90deg,#ef4444,#dc2626)}
-  .score-fill.high    {background:linear-gradient(90deg,#f97316,#ea580c)}
-  .score-fill.medium  {background:linear-gradient(90deg,#eab308,#ca8a04)}
-  .score-fill.low     {background:linear-gradient(90deg,#22c55e,#16a34a)}
-  .score-num{font-size:.78rem;font-weight:700;color:#f0f4fc;
-             min-width:3rem;text-align:right;font-variant-numeric:tabular-nums}
-  .findings{background:rgba(0,0,0,.22);border:1px solid rgba(129,140,248,.15);
-            border-radius:10px;overflow:hidden;margin-bottom:1.5rem}
-  .finding-row{display:flex;align-items:flex-start;gap:.75rem;
-               padding:.6rem .9rem;border-top:1px solid rgba(255,255,255,.04);font-size:.78rem}
-  .finding-row:first-child{border-top:none}
-  .sev{flex-shrink:0;padding:.18rem .52rem;border-radius:999px;
-       font-size:.66rem;font-weight:700;letter-spacing:.04em}
-  .sev-critical{background:rgba(239,68,68,.18);color:#fca5a5;border:1px solid rgba(239,68,68,.32)}
-  .sev-high    {background:rgba(251,146,60,.15);color:#fdba74;border:1px solid rgba(251,146,60,.28)}
-  .sev-medium  {background:rgba(250,204,21,.12);color:#fde047;border:1px solid rgba(250,204,21,.22)}
-  .sev-low     {background:rgba(52,211,153,.1);color:#34d399;border:1px solid rgba(52,211,153,.2)}
-  .rule-id{color:#a5b4fc;font-family:ui-monospace,"SF Mono",Consolas,monospace;
-           font-size:.71rem;margin-bottom:.15rem}
-  .evidence{color:#8b9cc4;word-break:break-all;line-height:1.4}
-  .footer{font-size:.73rem;color:#8b9cc4;line-height:1.65}
-  .back-btn{
-    display:inline-flex;align-items:center;gap:.45rem;margin-top:1.1rem;
-    padding:.55rem 1.2rem;
-    background:linear-gradient(135deg,#3b82f6,#6366f1 50%,#a855f7);
-    border:none;border-radius:10px;color:#fff;font-size:.85rem;font-weight:600;
-    font-family:inherit;cursor:pointer;text-decoration:none;
-    box-shadow:0 4px 20px rgba(99,102,241,.3);transition:filter .15s,transform .15s;
-  }
-  .back-btn:hover{filter:brightness(1.1);transform:translateY(-1px)}
-"""
-
-
-def _html_esc(s: str) -> str:
-    return (
-        s.replace("&", "&amp;")
-         .replace("<", "&lt;")
-         .replace(">", "&gt;")
-         .replace('"', "&quot;")
+        score = 2.0
+    return Finding(
+        rule_id="A10-DEEP-001",
+        evidence=f"JSON 중첩 깊이={depth} (임계값=15)",
+        severity=_score_to_severity(score),
+        location=f"{location} — Deep Nesting / DoS",
     )
 
 
-def _infer_category(findings: tuple[Finding, ...]) -> str:
-    sorted_f = sorted(findings, key=lambda f: _SEV_RANK_BLOCK.get(f.severity, 0), reverse=True)
-    for f in sorted_f:
-        cat = _SSRF_CATEGORY_MAP.get(f.rule_id)
-        if cat:
-            return cat
-    return "서버 측 요청 위조 (SSRF)"
+def _check_json_array_root(body: str, location: str) -> Finding | None:
+    """단일 오브젝트 예상 엔드포인트에 배열이 전달된 경우 Finding 반환."""
+    stripped = body.strip()
+    if not stripped or stripped[0] != "[":
+        return None
+    try:
+        obj = json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(obj, list):
+        return None
+    return Finding(
+        rule_id="A10-TYPECONF-003",
+        evidence=f"JSON 루트가 배열 (길이={len(obj)}) — 오브젝트 기대",
+        severity=Severity.LOW,
+        location=f"{location} — Type Confusion",
+    )
 
 
-def _max_score_from_findings(findings: tuple[Finding, ...]) -> int:
-    best = 0
-    for f in findings:
-        try:
-            part = f.evidence.split("총점:")[1].split("점")[0].strip()
-            best = max(best, int(part))
-        except Exception:
-            pass
-    return best
-
-
-def make_block_html(findings: tuple[Finding, ...]) -> str:
-    """SSRF 탐지 시 브라우저에 반환할 403 차단 HTML 페이지를 생성한다."""
-    category  = _infer_category(findings)
-    max_score = _max_score_from_findings(findings)
-    top_sev   = sorted(findings, key=lambda f: _SEV_RANK_BLOCK.get(f.severity, 0), reverse=True)
-    sev_label = top_sev[0].severity.value.upper() if top_sev else "HIGH"
-    sev_cls   = top_sev[0].severity.value.lower() if top_sev else "high"
-    bar_width = min(100, max_score)
-
-    rows: list[str] = []
-    for f in top_sev:
-        lbl, css = _SEV_CSS_BLOCK.get(f.severity, ("?", "sev-low"))
-        ev = f.evidence[:140] + "…" if len(f.evidence) > 140 else f.evidence
-        rows.append(
-            f'<div class="finding-row">'
-            f'<span class="sev {css}">{lbl}</span>'
-            f'<div>'
-            f'<div class="rule-id">{_html_esc(f.rule_id)}</div>'
-            f'<div class="evidence">{_html_esc(ev)}</div>'
-            f'</div></div>'
+def _check_range_header(value: str, location: str) -> Finding | None:
+    """Range: bytes=end-start 처럼 end < start 인 역순 Range 헤더 탐지."""
+    m = re.match(r"bytes\s*=\s*(\d+)\s*-\s*(\d+)", value, re.IGNORECASE)
+    if not m:
+        return None
+    start, end = int(m.group(1)), int(m.group(2))
+    if end < start:
+        return Finding(
+            rule_id="A10-HDRNOM-001",
+            evidence=f"Range: {value} (end={end} < start={start})",
+            severity=_score_to_severity(2.0),
+            location=f"{location} — Header Anomaly",
         )
-    findings_html = "\n".join(rows)
+    return None
+
+
+def _check_oversized_header(headers: dict[str, str]) -> Finding | None:
+    """단일 헤더 값이 8 KB 초과인 경우 탐지 (헤더 버퍼 오버플로)."""
+    for key, val in headers.items():
+        if len(val) > 8192:
+            score = 2.5 if len(val) >= 16384 else 2.0
+            return Finding(
+                rule_id="A10-HDRNOM-002",
+                evidence=f"헤더 '{key}' 크기={len(val)} bytes (임계값=8192)",
+                severity=_score_to_severity(score),
+                location=f"header:{key} — Header Anomaly",
+            )
+    return None
+
+
+# ── 공통 규칙 적용 헬퍼 ──────────────────────────────────────────────────────
+
+def _apply_rules(
+    value: str,
+    location: str,
+    rules: list[_Rule],
+    *,
+    max_evidence: int = 120,
+) -> list[Finding]:
+    """주어진 규칙 목록을 value에 적용하여 Finding 목록을 반환한다."""
+    out: list[Finding] = []
+    seen: set[str] = set()
+    for rule in rules:
+        if rule.pattern is None:
+            continue
+        if not rule.pattern.search(value):
+            continue
+        if rule.rule_id in seen:
+            continue
+        seen.add(rule.rule_id)
+        entropy = _shannon_entropy(value)
+        score   = rule.base_score + _entropy_bonus(entropy)
+        sev     = _score_to_severity(score)
+        evid    = value[:max_evidence] + ("…" if len(value) > max_evidence else "")
+        cat     = _category_label(rule.rule_id)
+        out.append(
+            Finding(
+                rule_id=rule.rule_id,
+                evidence=evid,
+                severity=sev,
+                location=f"{location} — {cat}",
+            )
+        )
+    return out
+
+
+# ── 중복 제거: rule_id 당 가장 심각도 높은 Finding 1개 ────────────────────────
+
+_SEV_RANK: dict[Severity, int] = {
+    Severity.NONE:     0,
+    Severity.LOW:      1,
+    Severity.MEDIUM:   2,
+    Severity.HIGH:     3,
+    Severity.CRITICAL: 4,
+}
+
+
+def _deduplicate(findings: list[Finding]) -> tuple[Finding, ...]:
+    best: dict[str, Finding] = {}
+    for f in findings:
+        prev = best.get(f.rule_id)
+        if prev is None or _SEV_RANK[f.severity] > _SEV_RANK[prev.severity]:
+            best[f.rule_id] = f
+    return tuple(best.values())
+
+
+# ── 메인 스캔 엔트리 포인트 ──────────────────────────────────────────────────
+
+async def scan(ctx: RequestContext) -> ModuleScanResult:
+    """A10:2025 Mishandling of Exceptional Conditions 탐지.
+
+    스캔 범위:
+      · URL 경로 (UNDEF, BOUND, ERRPRB, NULLB)
+      · 쿼리 파라미터 (UNDEF, NULLB, FMT, ERRPRB, PROTO)
+      · 요청 바디 (PROTO, FMT, TYPECONF, NULLB, DEEP)
+      · HTTP 헤더 (HDRNOM)
+    """
+    findings: list[Finding] = []
+
+    raw_path   = ctx.path
+    raw_query  = ctx.query_string
+    body       = ctx.body_preview
+    headers_lc = {k.lower(): v for k, v in ctx.headers.items()}
+
+    decoded_path  = urllib.parse.unquote(raw_path)
+    decoded_query = urllib.parse.unquote(raw_query)
+    query_params  = urllib.parse.parse_qsl(raw_query, keep_blank_values=True)
+
+    # ── 1. UNDEF: path 세그먼트 + 쿼리 파라미터 값 ───────────────────────────
+    findings.extend(_apply_rules(decoded_path, "path", _UNDEF_RULES))
+    for param, val in query_params:
+        dv = urllib.parse.unquote(val)
+        findings.extend(_apply_rules(dv, f"query.{param}", _UNDEF_RULES))
+
+    # ── 2. PROTO: body + 전체 쿼리 문자열 ────────────────────────────────────
+    findings.extend(_apply_rules(body, "body", _PROTO_RULES))
+    findings.extend(_apply_rules(decoded_query, "query", _PROTO_RULES))
+    # 쿼리 키/값 개별 검사
+    for param, val in query_params:
+        dp = urllib.parse.unquote(param)
+        dv = urllib.parse.unquote(val)
+        findings.extend(_apply_rules(dp, f"query.{param}[key]", _PROTO_RULES))
+        findings.extend(_apply_rules(dv, f"query.{param}", _PROTO_RULES))
+
+    # ── 3. BOUND: path 세그먼트 ──────────────────────────────────────────────
+    findings.extend(_apply_rules(decoded_path, "path", _BOUND_PATH_RULES))
+
+    # ── 4. NULLB: raw path, raw query, body ──────────────────────────────────
+    findings.extend(_apply_rules(raw_path,     "path",  _NULLB_RULES))
+    findings.extend(_apply_rules(raw_query,    "query", _NULLB_RULES))
+    findings.extend(_apply_rules(body,         "body",  _NULLB_RULES))
+
+    # ── 5. FMT: query 파라미터 값 + body ─────────────────────────────────────
+    for param, val in query_params:
+        dv = urllib.parse.unquote(val)
+        findings.extend(_apply_rules(dv, f"query.{param}", _FMT_RULES))
+    findings.extend(_apply_rules(body, "body", _FMT_RULES))
+
+    # ── 6. DEEP: JSON body 중첩 깊이 ─────────────────────────────────────────
+    if body.strip()[:1] in ("{", "["):
+        depth_f = _check_json_depth(body, "body")
+        if depth_f:
+            findings.append(depth_f)
+
+    # ── 7. TYPECONF: JSON body 타입 혼동 ─────────────────────────────────────
+    ct = headers_lc.get("content-type", "")
+    if "json" in ct or body.strip()[:1] in ("{", "["):
+        findings.extend(_apply_rules(body, "body", _TYPECONF_BODY_RULES))
+        arr_f = _check_json_array_root(body, "body")
+        if arr_f:
+            findings.append(arr_f)
+
+    # ── 8. ERRPRB: 검색 파라미터 + path + body ────────────────────────────────
+    _SEARCH_PARAMS = frozenset({"q", "search", "query", "s", "term", "keyword", "filter"})
+    for param, val in query_params:
+        dv = urllib.parse.unquote(val)
+        if param.lower() in _SEARCH_PARAMS or "/search" in decoded_path.lower():
+            findings.extend(_apply_rules(dv, f"query.{param}", _ERRPRB_SEARCH_RULES))
+        else:
+            # ERRPRB-002 (ORM 크래시 함수)는 모든 파라미터에 적용
+            findings.extend(_apply_rules(dv, f"query.{param}", [_ERRPRB_SEARCH_RULES[1]]))
+    findings.extend(_apply_rules(decoded_path, "path",  _ERRPRB_PATH_RULES))
+    findings.extend(_apply_rules(body,         "body",  [_ERRPRB_SEARCH_RULES[1]]))
+
+    # ── 9. HDRNOM: HTTP 헤더 이상 ─────────────────────────────────────────────
+    range_val = headers_lc.get("range", "")
+    if range_val:
+        rf = _check_range_header(range_val, "header:Range")
+        if rf:
+            findings.append(rf)
+
+    oversized_f = _check_oversized_header(ctx.headers)
+    if oversized_f:
+        findings.append(oversized_f)
+
+    return ModuleScanResult(
+        module_id=MODULE_ID,
+        owasp_id=OWASP_ID,
+        findings=_deduplicate(findings),
+    )
+
+
+# ── 독립 테스트용 블록 HTML 생성 ─────────────────────────────────────────────
+
+def make_block_html(result: ModuleScanResult) -> str:
+    """탐지 결과를 HTML 차단 페이지로 렌더링 (standalone 테스트용)."""
+    if not result.findings:
+        return "<p>탐지된 패턴 없음</p>"
+
+    _SEV_COLOR = {
+        "critical": "#c0392b",
+        "high":     "#e67e22",
+        "medium":   "#f1c40f",
+        "low":      "#27ae60",
+        "none":     "#95a5a6",
+    }
+    _SEV_KO = {
+        "critical": "크리티컬",
+        "high":     "하이",
+        "medium":   "미디엄",
+        "low":      "로우",
+    }
+
+    top: Finding = max(result.findings, key=lambda f: _SEV_RANK[f.severity])
+    sev_val = top.severity.value
+    color   = _SEV_COLOR.get(sev_val, "#95a5a6")
+    sev_ko  = _SEV_KO.get(sev_val, sev_val.upper())
+    cat_label = _category_label(top.rule_id)
+
+    rows_html = ""
+    for f in sorted(result.findings, key=lambda x: _SEV_RANK[x.severity], reverse=True):
+        fcolor = _SEV_COLOR.get(f.severity.value, "#95a5a6")
+        fko    = _SEV_KO.get(f.severity.value, f.severity.value)
+        rows_html += f"""
+      <tr>
+        <td><code>{html.escape(f.rule_id)}</code></td>
+        <td>{html.escape(f.location or '—')}</td>
+        <td><span style="color:{fcolor};font-weight:bold">{fko}</span></td>
+        <td style="font-size:0.85em;word-break:break-all">{html.escape(f.evidence[:100])}</td>
+      </tr>"""
 
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WAF — SSRF 차단됨</title>
-  <style>{_BLOCK_PAGE_CSS}</style>
+  <title>WAF 차단 — A10:2025</title>
+  <style>
+    body{{font-family:'Segoe UI',sans-serif;background:#1a1a2e;color:#eee;margin:0;display:flex;
+          justify-content:center;align-items:center;min-height:100vh}}
+    .card{{background:#16213e;border:2px solid {color};border-radius:12px;padding:2rem 2.5rem;
+           max-width:860px;width:100%;box-shadow:0 0 30px {color}55}}
+    h1{{color:{color};margin:0 0 0.4rem}}
+    .badge{{display:inline-block;background:{color};color:#fff;
+            border-radius:6px;padding:2px 10px;font-size:.85rem;margin-bottom:1rem}}
+    table{{width:100%;border-collapse:collapse;margin-top:1rem;font-size:.9rem}}
+    th{{background:#0f3460;padding:8px 10px;text-align:left}}
+    td{{padding:7px 10px;border-bottom:1px solid #2a2a4a}}
+    .footer{{margin-top:1.5rem;font-size:.8rem;color:#aaa}}
+    .back{{display:inline-block;margin-top:1rem;padding:8px 18px;background:{color};
+           color:#fff;border-radius:6px;text-decoration:none}}
+  </style>
 </head>
 <body>
   <div class="card">
-    <div class="icon">🚫</div>
-    <h1>SSRF 공격이 차단되었습니다</h1>
-    <p class="subtitle">
-      WAF(Web Application Firewall)가 서버 내부 리소스로의 위조 요청(SSRF)을 탐지하여<br>
-      이 요청을 업스트림 서버로 전달하지 않고 차단했습니다.
-    </p>
-    <div class="category-badge">🎯 {_html_esc(category)}</div>
-    <div class="score-bar">
-      <span class="score-label">위험 점수</span>
-      <div class="score-track">
-        <div class="score-fill {sev_cls}" style="width:{bar_width}%"></div>
-      </div>
-      <span class="score-num">{max_score}점 · {sev_label}</span>
-    </div>
-    <div class="findings">
-{findings_html}
-    </div>
+    <h1>🚫 WAF 차단 — {html.escape(OWASP_ID)}</h1>
+    <span class="badge">{html.escape(sev_ko)} · {html.escape(cat_label)}</span>
+    <p><strong>{html.escape(top.rule_id)}</strong>: {html.escape(_CATEGORY_LABEL.get(top.rule_id.split('-')[1] if len(top.rule_id.split('-'))>1 else '', top.rule_id))}</p>
+    <table>
+      <tr><th>규칙 ID</th><th>탐지 위치</th><th>심각도</th><th>증거 (일부)</th></tr>
+      {rows_html}
+    </table>
     <p class="footer">
-      OWASP A10:2025 — Server-Side Request Forgery (SSRF) 정책에 의해 차단되었습니다.<br>
-      내부 서버·클라우드 메타데이터·사설망·FTP 서버로의 요청은 허용되지 않습니다.<br>
-      정상적인 요청이라면 관리자에게 문의하세요.
+      OWASP {html.escape(OWASP_ID)} — Mishandling of Exceptional Conditions<br>
+      예외 조건을 유발하는 입력 패턴이 탐지되어 차단되었습니다.<br>
+      정상 요청이라면 관리자에게 문의하세요.
     </p>
-    <a class="back-btn" href="javascript:history.back()">← 이전 페이지로</a>
+    <a class="back" href="javascript:history.back()">← 이전 페이지로</a>
   </div>
 </body>
 </html>"""
-
-# ===========================================================================
-# 공개 인터페이스 — detector.py 가 호출하는 진입점
-# ===========================================================================
-
-async def scan(ctx: RequestContext) -> ModuleScanResult:
-    """A10:2025 SSRF — 요청의 모든 입력값을 검사하여 SSRF 패턴을 탐지한다.
-
-    스캔 범위:
-      URL 경로, 쿼리 파라미터(파싱+raw), JSON/Form/XML/raw 바디,
-      SSRF-prone 헤더, Cookie(SSRF 키워드 쿠키명)
-
-    FTP 탐지:
-      A10-SSRF-018 (base 60): ftp:// 단독 → param_bonus 포함 시 HIGH/CRITICAL 차단
-      A10-SSRF-011 (base 80): ftp://내부IP → CRITICAL 차단
-    """
-    all_findings: list[Finding] = []
-
-    for label, value, rules in _collect_targets(ctx):
-        all_findings.extend(_scan_value(label, value, rules))
-
-    return ModuleScanResult(
-        module_id=MODULE_ID,
-        owasp_id=OWASP_ID,
-        findings=_deduplicate(all_findings),
-    )

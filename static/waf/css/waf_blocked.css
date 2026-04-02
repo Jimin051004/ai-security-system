@@ -1,54 +1,312 @@
-/* WAF 차단 전용 페이지 (Juice Shop 등 프록시 차단 시) */
+/* ═══════════════════════════════════════════════════════════════
+   WAF 차단 페이지 — OWASP Top 10 : 2025
+   AI Security System
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 리셋 / 베이스 ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:          #0b0f1a;
+  --bg-card:     #111827;
+  --bg-card2:    #1a2235;
+  --border:      #1e2d45;
+  --accent:      #ef4444;   /* 차단 레드 */
+  --accent-glow: #ef444433;
+  --text:        #e2e8f0;
+  --text-dim:    #94a3b8;
+  --text-muted:  #64748b;
+  --blue:        #3b82f6;
+  --purple:      #8b5cf6;
+  --code-bg:     #0f172a;
+
+  /* 심각도 색상 */
+  --sev-critical: #ef4444;
+  --sev-high:     #f97316;
+  --sev-medium:   #eab308;
+  --sev-low:      #22c55e;
+}
+
+html { font-size: 16px; }
 
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  max-width: 42rem;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 상단 헤더 ── */
+.wb-topbar {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .75rem 1.5rem;
+  background: #0d1422;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.wb-topbar-logo {
+  font-weight: 700;
+  font-size: .95rem;
+  color: var(--text);
+  letter-spacing: .02em;
+}
+
+.wb-topbar-tag {
+  font-size: .72rem;
+  color: var(--text-muted);
+  margin-right: auto;
+}
+
+.wb-status-pill {
+  background: var(--accent);
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: .2rem .65rem;
+  border-radius: 999px;
+}
+
+/* ── 메인 컨테이너 ── */
+.wb-container {
+  flex: 1;
+  max-width: 860px;
+  width: 100%;
   margin: 2rem auto;
-  padding: 0 1rem;
-  background: #0f172a;
-  color: #e2e8f0;
-  line-height: 1.5;
+  padding: 0 1.25rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
-h1 {
-  font-size: 1.15rem;
-  color: #f87171;
-  margin-top: 0;
+/* ── 헤드라인 카드 ── */
+.wb-headline-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 1.4rem 1.6rem;
+  box-shadow: 0 0 28px var(--accent-glow);
 }
 
-.waf-block-lead {
-  margin: 0 0 1rem;
-  color: #cbd5e1;
+.wb-headline-icon {
+  font-size: 2.4rem;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
-.waf-block-note {
-  margin: 0 0 1rem;
-  font-size: 0.86rem;
-  color: #a5b4fc;
-  line-height: 1.45;
+.wb-headline {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: .35rem;
+  line-height: 1.35;
 }
 
-.waf-block-list {
-  padding-left: 1.15rem;
-  margin: 0.75rem 0;
+.wb-subline {
+  font-size: .88rem;
+  color: var(--text-dim);
 }
 
-.waf-block-list li {
-  margin: 0.5rem 0;
-  font-size: 0.88rem;
+/* ── 탐지 항목 카드 ── */
+.wb-finding {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-.waf-block-loc {
-  color: #94a3b8;
-  font-size: 0.78rem;
+/* 심각도별 왼쪽 강조선 */
+.wb-finding[data-sev="critical"] { border-left: 4px solid var(--sev-critical); }
+.wb-finding[data-sev="high"]     { border-left: 4px solid var(--sev-high); }
+.wb-finding[data-sev="medium"]   { border-left: 4px solid var(--sev-medium); }
+.wb-finding[data-sev="low"]      { border-left: 4px solid var(--sev-low); }
+
+.wb-finding-header {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .75rem 1.1rem;
+  background: var(--bg-card2);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
 }
 
-.waf-block-hint {
-  color: #94a3b8;
-  font-size: 0.82rem;
-  margin-top: 1.75rem;
+/* OWASP ID 배지 */
+.wb-owasp-badge {
+  background: var(--purple);
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  padding: .18rem .6rem;
+  border-radius: 5px;
+  white-space: nowrap;
 }
 
-.waf-block-hint a {
-  color: #93c5fd;
+/* 카테고리 레이블 */
+.wb-category-label {
+  font-size: .82rem;
+  color: var(--text-dim);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 심각도 알약 */
+.wb-sev-pill {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  padding: .18rem .65rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.wb-sev-critical { background: var(--sev-critical); color: #fff; }
+.wb-sev-high     { background: var(--sev-high);     color: #fff; }
+.wb-sev-medium   { background: var(--sev-medium);   color: #111; }
+.wb-sev-low      { background: var(--sev-low);      color: #111; }
+
+/* 공격 유형 제목 */
+.wb-attack-type {
+  padding: .8rem 1.1rem .4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* 상세 테이블 */
+.wb-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .84rem;
+}
+
+.wb-detail-table tr + tr { border-top: 1px solid var(--border); }
+
+.wb-dt-key {
+  width: 7rem;
+  padding: .55rem 1.1rem;
+  color: var(--text-muted);
+  font-size: .78rem;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.wb-dt-val {
+  padding: .55rem 1.1rem .55rem .4rem;
+  color: var(--text-dim);
+  word-break: break-word;
+}
+
+/* code 태그 */
+.wb-code {
+  display: inline-block;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: .1rem .45rem;
+  font-family: 'Consolas', 'Fira Code', monospace;
+  font-size: .82rem;
+  color: #7dd3fc;
+}
+
+/* 증거 */
+.wb-evidence {
+  font-family: 'Consolas', 'Fira Code', monospace;
+  font-size: .78rem;
+  color: #fca5a5;
+  word-break: break-all;
+}
+
+/* ── OWASP 카테고리 설명 박스 (JS로 채움) ── */
+.wb-owasp-info {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--blue);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  font-size: .86rem;
+}
+
+.wb-owasp-info-title {
+  font-weight: 700;
+  color: var(--blue);
+  margin-bottom: .35rem;
+  font-size: .9rem;
+}
+
+.wb-owasp-info-desc {
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+.wb-owasp-cwe-list {
+  margin-top: .5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+
+.wb-cwe-tag {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: .1rem .45rem;
+  font-size: .72rem;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+/* ── 액션 버튼 ── */
+.wb-actions {
+  display: flex;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+
+.wb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .6rem 1.2rem;
+  border-radius: 7px;
+  font-size: .85rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: opacity .15s;
+  cursor: pointer;
+}
+.wb-btn:hover { opacity: .82; }
+
+.wb-btn-back      { background: #1e293b; color: var(--text); border: 1px solid var(--border); }
+.wb-btn-home      { background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb44; }
+.wb-btn-dashboard { background: #3b1f5e; color: #c4b5fd; border: 1px solid #7c3aed44; }
+
+/* ── 푸터 ── */
+.wb-footer {
+  text-align: center;
+  font-size: .75rem;
+  color: var(--text-muted);
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* ── 반응형 ── */
+@media (max-width: 600px) {
+  .wb-headline-card { flex-direction: column; gap: .6rem; }
+  .wb-headline-icon { font-size: 1.8rem; }
+  .wb-actions { flex-direction: column; }
+  .wb-btn { width: 100%; justify-content: center; }
 }

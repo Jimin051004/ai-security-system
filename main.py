@@ -303,6 +303,7 @@ def _module_title(module_id: str) -> str:
 
 def _attack_type_label(rule_id: str) -> str:
     u = rule_id.upper()
+    # A05:2025 — Injection
     if u.startswith("A05-SQL"):
         return "SQL Injection"
     if u.startswith("A05-CMD"):
@@ -319,6 +320,25 @@ def _attack_type_label(rule_id: str) -> str:
         return "Server-Side Template Injection (SSTI)"
     if u.startswith("A05-CRLF"):
         return "CRLF Injection"
+    # A10:2025 — Mishandling of Exceptional Conditions
+    if u.startswith("A10-UNDEF"):
+        return "Undefined Identifier (예외 미처리)"
+    if u.startswith("A10-PROTO"):
+        return "Prototype Pollution"
+    if u.startswith("A10-BOUND"):
+        return "Boundary Value / Integer Overflow"
+    if u.startswith("A10-NULLB"):
+        return "Null-Byte Injection"
+    if u.startswith("A10-FMT"):
+        return "Format String Probe"
+    if u.startswith("A10-DEEP"):
+        return "Deep Nesting / DoS"
+    if u.startswith("A10-TYPECONF"):
+        return "Type Confusion"
+    if u.startswith("A10-ERRPRB"):
+        return "Error Probe (예외 조건 유발)"
+    if u.startswith("A10-HDRNOM"):
+        return "HTTP Header Anomaly"
     return "기타 / 규칙 기반 탐지"
 
 
@@ -511,7 +531,8 @@ async def waf_api_clients() -> dict[str, Any]:
 
 
 def _module_implementation_label(module_id: str) -> str:
-    return "rules" if module_id == "a05" else "skeleton"
+    _IMPLEMENTED = {"a05", "a10"}
+    return "rules" if module_id in _IMPLEMENTED else "skeleton"
 
 
 @app.get("/__waf/api/modules")

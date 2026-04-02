@@ -3,34 +3,86 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WAF — 요청 차단</title>
+  <title>WAF 차단 — AI Security System</title>
   <link rel="stylesheet" href="/__waf/static/css/waf_blocked.css" />
 </head>
 <body>
-  <h1>{{ headline }}</h1>
-  <p class="waf-block-lead">{{ subline }}</p>
-  {% if rows|length == 1 %}
-  <p class="waf-block-note">
-    <strong>{{ rows[0].attack_type }}</strong> 취약점 패턴이 입력에서 탐지된 것으로 분류되었습니다.
-  </p>
-  {% elif rows|length > 1 %}
-  <p class="waf-block-note">여러 공격 유형이 동시에 탐지되었습니다. 항목별 상세는 아래와 같습니다.</p>
-  {% else %}
-  <p class="waf-block-note">차단 사유는 보안 정책에 따라 기록됩니다.</p>
-  {% endif %}
-  <ul class="waf-block-list">
+
+  <!-- ── 상단 헤더 ── -->
+  <header class="wb-topbar">
+    <span class="wb-topbar-logo">&#x1F6E1; AI Security WAF</span>
+    <span class="wb-topbar-tag">OWASP Top 10 : 2025</span>
+    <span class="wb-status-pill">403 BLOCKED</span>
+  </header>
+
+  <!-- ── 메인 컨테이너 ── -->
+  <main class="wb-container">
+
+    <!-- ── 헤드라인 카드 ── -->
+    <div class="wb-headline-card">
+      <div class="wb-headline-icon">&#x1F6AB;</div>
+      <div class="wb-headline-text">
+        <h1 class="wb-headline">{{ headline }}</h1>
+        <p class="wb-subline">{{ subline }}</p>
+      </div>
+    </div>
+
+    <!-- ── 탐지 항목 카드(들) ── -->
     {% for row in rows %}
-    <li>
-      <strong>{{ row.owasp_id }}</strong> — {{ row.category }} — <em>{{ row.attack_type }}</em>
-      (심각도: {{ row.severity }})<br />
-      <span class="waf-block-loc">탐지 위치: {{ row.location }} · 규칙 {{ row.rule_id }}</span>
-    </li>
+    <div class="wb-finding" data-sev="{{ row.severity }}">
+
+      <!-- 헤더 행 -->
+      <div class="wb-finding-header">
+        <span class="wb-owasp-badge">{{ row.owasp_id }}</span>
+        <span class="wb-category-label">{{ row.category }}</span>
+        <span class="wb-sev-pill wb-sev-{{ row.severity }}">
+          {{ row.severity | upper }}
+        </span>
+      </div>
+
+      <!-- 공격 유형 타이틀 -->
+      <div class="wb-attack-type">{{ row.attack_type }}</div>
+
+      <!-- 상세 테이블 -->
+      <table class="wb-detail-table">
+        <tbody>
+          <tr>
+            <td class="wb-dt-key">규칙 ID</td>
+            <td><code class="wb-code">{{ row.rule_id }}</code></td>
+          </tr>
+          <tr>
+            <td class="wb-dt-key">탐지 위치</td>
+            <td class="wb-dt-val">{{ row.location }}</td>
+          </tr>
+          <tr>
+            <td class="wb-dt-key">탐지 증거</td>
+            <td class="wb-dt-val wb-evidence">{{ row.evidence }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+    </div>
     {% endfor %}
-  </ul>
-  <p class="waf-block-hint">
-    <a href="javascript:history.back()">이전 페이지</a> ·
-    <a href="/">처음으로</a>
-  </p>
+
+    <!-- ── OWASP 2025 카테고리 설명 (JS로 채움) ── -->
+    <div class="wb-owasp-info" id="wb-owasp-info" hidden></div>
+
+    <!-- ── 액션 버튼 ── -->
+    <div class="wb-actions">
+      <a class="wb-btn wb-btn-back"      href="javascript:history.back()">&#x2190; 이전 페이지</a>
+      <a class="wb-btn wb-btn-home"      href="/">&#x1F3E0; 처음으로</a>
+      <a class="wb-btn wb-btn-dashboard" href="/__waf/dashboard">&#x1F4CA; WAF 대시보드</a>
+    </div>
+
+  </main>
+
+  <!-- ── 푸터 ── -->
+  <footer class="wb-footer">
+    AI Security WAF · OWASP Top 10 : 2025 기반 탐지 엔진 &nbsp;|&nbsp;
+    정상 요청이라면 시스템 관리자에게 문의하세요.
+  </footer>
+
+  <!-- boot 데이터 (JS가 읽음) -->
   <script type="application/json" id="waf-block-boot">{{ boot | tojson }}</script>
   <script src="/__waf/static/js/waf_blocked.js" defer></script>
 </body>
