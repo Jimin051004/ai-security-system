@@ -1,0 +1,57 @@
+---
+description: OWASP Top 10 2025 기준 모듈 우선순위·점검 흐름 (PDF·문서·owasp/a01–a10)
+alwaysApply: true
+---
+
+# OWASP Top 10:2025 — 작업·모듈 우선순위
+
+이 프로젝트(AI Security System / WAF 프록시)에서 **새 OWASP 모듈을 만들거나 “다음에 뭘 할까”를 물을 때** 아래를 **먼저** 적용한다.
+
+## 기준 문서 (순서대로 참고)
+
+1. **`docs/OWASP_TOP10_2025_PDF_정리.md`** — 사용자 PDF에서 옮긴 **Juice Shop 챌린지·난이도 표**. 질문 답변·우선순위 잡을 때 **사용자와 동일하게 여기를 먼저 본다.**  
+2. **로컬 PDF (원본):** `/Users/jimin/Downloads/OWASP TOP 10 2025.pdf` — 표 내용은 (1)과 동일 계열; 원문 확인 시만.  
+3. **서술형 가이드:** `docs/OWASP_TOP10_2025.md` , 필요 시 `docs/OWASP_TOP10_2025_Guide.md`  
+4. 어긋칠 때는 **공식** [OWASP Top 10:2025](https://owasp.org/Top10/2025/) 와 저장소 `docs/` 를 우선한다.
+
+## 공식 10항목 ↔ 코드 모듈 (고정 매핑)
+
+| 순위 | ID | 영문 제목 | 구현 파일 | 비고 |
+|-----|-----|-----------|-----------|------|
+| 1 | A01:2025 | Broken Access Control | `owasp/a01.py` | 현재 skeleton |
+| 2 | A02:2025 | Security Misconfiguration | `owasp/a02.py` | skeleton |
+| 3 | A03:2025 | Software Supply Chain Failures | `owasp/a03.py` | skeleton |
+| 4 | A04:2025 | Cryptographic Failures | `owasp/a04.py` | skeleton |
+| 5 | A05:2025 | Injection | `owasp/a05.py` | **규칙 다수 구현** |
+| 6 | A06:2025 | Insecure Design | `owasp/a06.py` | skeleton |
+| 7 | A07:2025 | Authentication Failures | `owasp/a07.py` | skeleton |
+| 8 | A08:2025 | Software/Data Integrity Failures | `owasp/a08.py` | skeleton |
+| 9 | A09:2025 | Security Logging and Alerting Failures | `owasp/a09.py` | skeleton |
+| 10 | A10:2025 | Mishandling of Exceptional Conditions | `owasp/a10.py` | **규칙 다수 구현** |
+
+모듈 등록은 `owasp/__init__.py`의 `MODULES` 튜플을 따른다.
+
+## 구현 상태 (요약)
+
+- **실탐지(룰 기반):** `a05`, `a10` — 대시보드·검증에서 `implementation: rules` 로 표시되는 수준.  
+- **스켈레톤:** `a01`–`a04`, `a06`–`a09` — `clean_result` 등으로 빈 findings; 여기가 **확장 우선 구간**.
+
+## 사용자가 “다음에 어떤 모듈 만들까?”라고 하면
+
+1. **OWASP Top 10:2025 공식 순위(A01→A10)** 를 기본 순서로 쓴다.  
+2. 이미 **a05, a10** 은 구현도가 높으므로, **남은 항목 중 PDF·문서에서 팀이 우선한다고 한 영역**이 없으면 **A01부터 순서대로** 다음 타깃을 제안한다.  
+3. 제안 시 **반드시** 포함할 것:  
+   - 대상 **ID + 한글/영문 제목**  
+   - 수정할 파일 **`owasp/aXX.py`**  
+   - **요청 스냅샷**(`RequestContext`: path, query, headers, body_preview)에서 잡을 수 있는 **구체 패턴·Juice Shop 경로 예시**  
+   - `detector.py` / `main.py` WAF 게이트와 맞는지(차단 심각도·`waf_blocking_findings` 정책)  
+4. PDF의 **챌린지·난이도**가 있으면, Juice Shop 시연 경로와 연결해 설명한다.
+
+## 점검(체크리스트) 관점
+
+- “전 항목 점검”은 **PDF + `docs/OWASP_TOP10_2025.md`의 각 A01–A10 절**을 기준으로, **모듈별로 탐지 규칙·테스트·차단 동작**이 있는지 확인하는 흐름으로 정리한다.  
+- 한 항목 작업이 끝나면 `verification/` 에 **해당 `aXX` 또는 WAF 통합** 테스트를 추가하는 것을 기본으로 제안한다.
+
+## main.py·대시보드
+
+- `main.py`의 `_module_implementation_label` 은 `a05`, `a10` 만 `rules` 로 표시한다. **새 모듈에 실제 탐지를 넣으면** 이 집합을 갱신한다.
