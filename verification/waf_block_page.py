@@ -22,6 +22,19 @@ def test_blocked_returns_json_when_accept_application_json() -> None:
     assert len(data.get("findings", [])) >= 1
 
 
+def test_blocked_returns_html_when_accept_json_plus_wildcard_like_spa_fetch() -> None:
+    """Juice Shop 등 SPA: Accept에 json이 먼저 와도 */*·text/plain이면 HTML 차단 페이지."""
+    traffic_log.clear()
+    client = TestClient(app)
+    r = client.get(
+        "/rest/products/search?q=test' OR '1'='1",
+        headers={"Accept": "application/json, text/plain, */*"},
+    )
+    assert r.status_code == 403
+    assert "text/html" in r.headers.get("content-type", "")
+    assert "waf_blocked.js" in r.text
+
+
 def test_blocked_returns_html_with_alert_hint_when_browser_document() -> None:
     traffic_log.clear()
     client = TestClient(app)
