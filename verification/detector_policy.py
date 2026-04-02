@@ -6,6 +6,7 @@ from detector import (
     all_findings,
     findings_at_or_above_severity,
     parse_severity,
+    waf_blocking_findings,
 )
 from owasp.types import Finding, ModuleScanResult, Severity
 
@@ -28,6 +29,15 @@ def test_findings_at_or_above_severity() -> None:
     assert findings_at_or_above_severity(all_f, Severity.HIGH) == [f_high, f_crit]
     assert findings_at_or_above_severity(all_f, Severity.CRITICAL) == [f_crit]
     assert findings_at_or_above_severity(all_f, Severity.LOW) == all_f
+
+
+def test_waf_blocking_findings_includes_a05_below_threshold() -> None:
+    """A05 인젝션 규칙은 WAF_BLOCK_MIN_SEVERITY 미만이어도 차단 후보에 넣는다."""
+    f_a05_med = Finding("A05-SQL-009", "hex", Severity.MEDIUM, "query.q")
+    f_other_low = Finding("A10-FOO-001", "x", Severity.LOW)
+    findings = [f_a05_med, f_other_low]
+    assert findings_at_or_above_severity(findings, Severity.HIGH) == []
+    assert waf_blocking_findings(findings, Severity.HIGH) == [f_a05_med]
 
 
 def test_all_findings_flattens_modules() -> None:

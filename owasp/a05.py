@@ -44,14 +44,23 @@ class _Rule:
     pattern: re.Pattern[str]
     severity: Severity
     description: str
+    # location 라벨(소문자 기준 startswith)이면 이 규칙을 적용하지 않음 — Referer 등 URL 전용 값 오탐 방지
+    skip_location_prefixes: tuple[str, ...] = ()
 
 
-def _r(rule_id: str, pattern: str, severity: Severity, description: str) -> _Rule:
+def _r(
+    rule_id: str,
+    pattern: str,
+    severity: Severity,
+    description: str,
+    skip_location_prefixes: tuple[str, ...] = (),
+) -> _Rule:
     return _Rule(
         rule_id=rule_id,
         pattern=re.compile(pattern, re.IGNORECASE | re.DOTALL),
         severity=severity,
         description=description,
+        skip_location_prefixes=skip_location_prefixes,
     )
 
 
@@ -191,8 +200,15 @@ _XPATH_RULES: tuple[_Rule, ...] = (
     _r("A05-XPATH-001", r"'\s*or\s*'[\w\d]+'\s*=\s*'[\w\d]+",
        Severity.HIGH, "XPath 인젝션: OR 조건"),
 
-    _r("A05-XPATH-002", r"(//|\.\./|/\.\./)",
-       Severity.MEDIUM, "XPath 노드 순회 시도"),
+    # // 는 http:// https:// 의 일부로 흔함 → (?<![a-zA-Z0-9:]) 로 스킴과 구분
+    # ../ /../ 는 Referer·Origin 의 정상 URL 경로에서 흔함 → 해당 헤더는 규칙 스킵
+    _r(
+        "A05-XPATH-002",
+        r"(?<![a-zA-Z0-9:])//|/\.\./|\.\./",
+        Severity.MEDIUM,
+        "XPath 노드 순회 시도",
+        ("header.referer", "header.origin"),
+    ),
 
     _r("A05-XPATH-003", r"\bstring-length\s*\(|\bsubstring\s*\(|\bcount\s*\(",
        Severity.MEDIUM, "XPath Blind 인젝션 함수 사용"),
@@ -223,7 +239,7 @@ _EL_RULES: tuple[_Rule, ...] = (
 # ── CRLF Injection ─────────────────────────────────────────────────────────
 
 _CRLF_RULES: tuple[_Rule, ...] = (
-    _r("A05-CRLF-001", r"(%0d%0a|%0D%0A|\r\n|\n)",
+    _r("A05-CRLF-001", r"(%0d%0a|%0D%0A|\r\n)",
        Severity.MEDIUM, "CRLF 인젝션: HTTP 헤더 분할 시도"),
 
     _r("A05-CRLF-002", r"(%0a|%0d)(Set-Cookie|Location|Content-Type)",
@@ -283,6 +299,10 @@ def _scan_value(
     variants = _decode_plus(value) if plus_decode else _decode_layers(value)
 
     for rule in _ALL_RULES:
+        if location and rule.skip_location_prefixes:
+            loc_l = location.lower()
+            if any(loc_l.startswith(p.lower()) for p in rule.skip_location_prefixes):
+                continue
         for variant in variants:
             m = rule.pattern.search(variant)
             if m:

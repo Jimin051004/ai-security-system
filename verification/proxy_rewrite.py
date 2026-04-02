@@ -40,9 +40,27 @@ def test_rewrite_location_to_public_origin() -> None:
 def test_rewrite_html_embedded_upstream_origin() -> None:
     req = _req("192.168.0.39", 8080)
     raw = b'<script src="http://127.0.0.1:3001/main.js"></script>'
-    out = _rewrite_response_body_for_public_origin(raw, "text/html; charset=utf-8", req)
+    out, _ = _rewrite_response_body_for_public_origin(raw, "text/html; charset=utf-8", req)
     assert b"192.168.0.39:8080" in out
     assert b"127.0.0.1:3001" not in out
+
+
+def test_proxied_html_strips_csp_when_interceptor_injected() -> None:
+    """업스트림 CSP 가 인라인을 막을 수 있어, 인터셉터 주입 시 CSP 헤더는 제거한다."""
+    req = _req("192.168.0.39", 8080)
+    upstream = httpx.Response(
+        200,
+        headers=[
+            ("Content-Type", "text/html; charset=utf-8"),
+            ("Content-Security-Policy", "default-src 'self'"),
+        ],
+        content=b"<!DOCTYPE html><html><head></head><body>x</body></html>",
+    )
+    resp = _build_proxied_upstream_response(req, upstream)
+    assert resp.status_code == 200
+    assert b"waf_proxy_interceptor.js" in resp.body
+    h = {k.decode().lower(): v.decode() for k, v in resp.raw_headers}
+    assert "content-security-policy" not in h
 
 
 def test_build_proxied_response_does_not_use_list_headers() -> None:

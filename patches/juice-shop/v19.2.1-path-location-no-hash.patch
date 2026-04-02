@@ -1,0 +1,13 @@
+diff --git a/frontend/src/app/app.routing.ts b/frontend/src/app/app.routing.ts
+index d3508e8..73d8972 100644
+--- a/frontend/src/app/app.routing.ts
++++ b/frontend/src/app/app.routing.ts
+@@ -252,7 +252,7 @@ const routes: Routes = [
+ ]
+ // vuln-code-snippet end adminSectionChallenge scoreBoardChallenge web3SandboxChallenge
+ 
+-export const Routing = RouterModule.forRoot(routes, { useHash: true })
++export const Routing = RouterModule.forRoot(routes, { useHash: false })
+ 
+ export function oauthMatcher (url: UrlSegment[]): UrlMatchResult {
+   if (url.length === 0) {

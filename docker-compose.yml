@@ -10,7 +10,14 @@ name: ai-security-system
 
 services:
   juice-shop:
-    image: bkimminich/juice-shop:latest
+    # 공식 latest 는 URL 에 # 유지(useHash: true). # 없이 쓰려면 아래 build 로 소스 한 줄 수정 후 재빌드.
+    # 이전처럼 이미지만 쓰려면: image: bkimminich/juice-shop:latest 로 되돌리고 build 블록 제거.
+    build:
+      context: ./docker/juice-shop
+      dockerfile: Dockerfile
+      args:
+        JUICE_SHOP_REF: v19.2.1
+    image: ai-security-system/juice-shop:path-location
     ports:
       - "3001:3000"
     restart: unless-stopped

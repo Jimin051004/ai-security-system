@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,12 +20,12 @@ from fastapi.staticfiles import StaticFiles
 
 from detector import (
     all_findings,
-    findings_at_or_above_severity,
     parse_severity,
     scan_request,
+    waf_blocking_findings,
 )
 from owasp import MODULES
-from owasp.types import Finding, ModuleScanResult, Severity
+from owasp.types import Finding, ModuleScanResult, RequestContext, Severity
 from request_snapshot import DEFAULT_BODY_PREVIEW_MAX, request_to_context
 
 import traffic_log
@@ -216,91 +217,64 @@ def _media_type_should_rewrite_body(ct_header: str) -> bool:
     return False
 
 
-# Juice Shop 프록시 HTML에 주입할 WAF 인터셉터 스크립트.
-# fetch / XMLHttpRequest 403 응답을 감지해 /__waf/blocked 차단 페이지로 리다이렉트.
-_WAF_INTERCEPTOR_JS = """
-<script id="__waf-interceptor">
-(function(){
-  function _wafRedirect(data) {
-    if (!data || !data.blocked) return;
-    var f = (data.findings && data.findings[0]) || {};
-    var p = new URLSearchParams({
-      owasp_id:    f.owasp_id    || '',
-      category:    f.category    || '',
-      attack_type: f.attack_type || 'WAF 차단',
-      rule_id:     f.rule_id     || '',
-      severity:    f.severity    || 'high',
-      location:    f.location    || '',
-      evidence:    (f.evidence   || '').slice(0, 200),
-    });
-    window.location.href = '/__waf/blocked?' + p.toString();
-  }
-
-  /* fetch 인터셉터 */
-  var _origFetch = window.fetch;
-  window.fetch = function(input, init) {
-    return _origFetch.call(this, input, init).then(function(resp) {
-      if (resp.status === 403) {
-        resp.clone().json().then(_wafRedirect).catch(function(){});
-      }
-      return resp;
-    });
-  };
-
-  /* XMLHttpRequest 인터셉터 */
-  var _origOpen = XMLHttpRequest.prototype.open;
-  var _origSend = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.open = function(m, u) {
-    this._wafUrl = u;
-    return _origOpen.apply(this, arguments);
-  };
-  XMLHttpRequest.prototype.send = function() {
-    this.addEventListener('load', function() {
-      if (this.status === 403) {
-        try { _wafRedirect(JSON.parse(this.responseText)); } catch(e) {}
-      }
-    });
-    return _origSend.apply(this, arguments);
-  };
-})();
-</script>"""
+# 업스트림 HTML에 삽입: 외부 스크립트만 로드 (CSP 가 inline 을 막는 경우 대비).
+# 본문은 static/waf/js/waf_proxy_interceptor.js
+_WAF_INTERCEPTOR_SNIPPET = (
+    '\n<script id="__waf-interceptor" src="/__waf/static/js/waf_proxy_interceptor.js">'
+    "</script>\n"
+)
 
 
 def _inject_waf_interceptor(text: str) -> str:
-    """HTML </body> 직전에 WAF 인터셉터 스크립트를 삽입한다."""
+    """WAF 인터셉터를 <head> 직후(없으면 <html> 직후, 그다음 </body> 앞)에 넣는다."""
+    if "__waf-interceptor" in text:
+        return text
+    snip = _WAF_INTERCEPTOR_SNIPPET
+    m = re.search(r"<head[^>]*>", text, flags=re.IGNORECASE)
+    if m:
+        ins = m.end()
+        return text[:ins] + snip + text[ins:]
+    m2 = re.search(r"<html[^>]*>", text, flags=re.IGNORECASE)
+    if m2:
+        ins = m2.end()
+        return text[:ins] + snip + text[ins:]
     tag = "</body>"
     idx = text.lower().rfind(tag)
     if idx == -1:
-        return text + _WAF_INTERCEPTOR_JS
-    return text[:idx] + _WAF_INTERCEPTOR_JS + text[idx:]
+        return snip + text
+    return text[:idx] + snip + text[idx:]
 
 
 def _rewrite_response_body_for_public_origin(
     content: bytes, content_type: str, request: Request
-) -> bytes:
+) -> tuple[bytes, bool]:
+    """본문 바이트와, WAF 인터셉터를 넣었는지 여부(CSP 완화용)."""
     if len(content) > PROXY_REWRITE_MAX_BYTES:
-        return content
+        return content, False
     if not _media_type_should_rewrite_body(content_type):
-        return content
+        return content, False
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
-        return content
+        return content, False
     main_ct = (content_type or "").split(";")[0].strip().lower()
-    # URL 재작성
     pub = _request_public_origin(request)
     for orig in sorted(_upstream_origin_variants(), key=len, reverse=True):
         if orig in text:
             text = text.replace(orig, pub)
-    # HTML 응답에만 WAF 인터셉터 삽입
+    injected = False
     if main_ct == "text/html" and "__waf-interceptor" not in text:
+        before = text
         text = _inject_waf_interceptor(text)
-    return text.encode("utf-8")
+        injected = "__waf-interceptor" in text and text != before
+    return text.encode("utf-8"), injected
 
 
 def _build_proxied_upstream_response(request: Request, upstream: httpx.Response) -> Response:
     ct = upstream.headers.get("content-type", "")
-    content = _rewrite_response_body_for_public_origin(upstream.content, ct, request)
+    content, strip_csp = _rewrite_response_body_for_public_origin(
+        upstream.content, ct, request
+    )
     # Starlette Response.headers 는 Mapping 만 허용 — list/tuple 이면 500 (AttributeError)
     out = MutableHeaders()
     for key, value in upstream.headers.multi_items():
@@ -308,6 +282,11 @@ def _build_proxied_upstream_response(request: Request, upstream: httpx.Response)
         if lk in HOP_BY_HOP:
             continue
         if lk in ("content-length", "content-encoding", "transfer-encoding"):
+            continue
+        if strip_csp and lk in (
+            "content-security-policy",
+            "content-security-policy-report-only",
+        ):
             continue
         if lk == "location":
             value = _rewrite_location_header(value, request)
@@ -535,7 +514,7 @@ async def _run_waf_gate(
     results = await scan_request(ctx)
     findings = all_findings(results)
     min_sev = _waf_block_min_severity()
-    blocking = findings_at_or_above_severity(findings, min_sev)
+    blocking = waf_blocking_findings(findings, min_sev)
     if not blocking:
         return None, results, []
     payload = _blocking_payload_dict(results, blocking, min_sev)
@@ -546,6 +525,29 @@ async def _run_waf_gate(
     return blocked, results, blocking
 
 
+async def _waf_scan_client_fragment(fragment: str) -> JSONResponse | None:
+    """location.hash 등 브라우저만 아는 문자열을 body_preview 로 올려 A05/A10 과 동일 스캔."""
+    if not _waf_enabled():
+        return None
+    raw = (fragment or "")[: _body_preview_max()]
+    if not raw.strip():
+        return None
+    ctx = RequestContext(
+        method="GET",
+        path="/",
+        query_string="",
+        headers={},
+        body_preview=raw,
+    )
+    results = await scan_request(ctx)
+    findings = all_findings(results)
+    blocking = waf_blocking_findings(findings, _waf_block_min_severity())
+    if not blocking:
+        return None
+    payload = _blocking_payload_dict(results, blocking, _waf_block_min_severity())
+    return JSONResponse(status_code=403, content=payload)
+
+
 @app.get("/__proxy/health")
 async def proxy_health() -> dict[str, Any]:
     return {
@@ -553,7 +555,6 @@ async def proxy_health() -> dict[str, Any]:
         "upstream": UPSTREAM_BASE,
         "waf_enabled": _waf_enabled(),
         "waf_block_min_severity": _waf_block_min_severity().value,
-        "dashboard_path": f"{WAF_UI_PREFIX}/dashboard",
         "process_started_at": _PROCESS_STARTED_AT,
     }
 
@@ -647,6 +648,20 @@ class BlockSeverityUpdate(BaseModel):
     min_severity: str = Field(..., min_length=2, max_length=16)
 
 
+class FragmentScanIn(BaseModel):
+    """인터셉터가 location.hash 를 서버로 넘겨 WAF 가 스캔할 때 사용."""
+
+    fragment: str = Field(default="", max_length=16384)
+
+
+@app.post("/__waf/api/scan-fragment", response_model=None)
+async def waf_api_scan_fragment(body: FragmentScanIn) -> Any:
+    blocked = await _waf_scan_client_fragment(body.fragment)
+    if blocked is not None:
+        return blocked
+    return {"status": "ok"}
+
+
 @app.put("/__waf/api/settings/block-severity")
 async def waf_api_set_block_severity(body: BlockSeverityUpdate) -> dict[str, Any]:
     """런타임에 `WAF_BLOCK_MIN_SEVERITY`와 동일 효과 (프로세스 메모리의 os.environ만 갱신)."""
@@ -711,7 +726,7 @@ def _waf_unknown_path_response() -> JSONResponse:
     """`/__waf/*` 중 대시보드·요약 API가 아닌 경로 — 업스트림으로 넘기면 Juice Shop HTML이 먹힘."""
     return JSONResponse(
         status_code=404,
-        content={"detail": "Unknown WAF UI path; use /__waf/dashboard"},
+        content={"detail": "Unknown WAF UI path"},
         headers={"Cache-Control": "no-store"},
     )
 
