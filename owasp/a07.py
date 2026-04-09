@@ -53,10 +53,19 @@ def _score_to_severity(score: float) -> Severity:
 # ── IP 추출 ──────────────────────────────────────────────────────────────────
 
 def _get_client_ip(headers: dict[str, str]) -> str:
+    """클라이언트 IP 추출.
+
+    우선순위: X-Forwarded-For → X-Real-IP → 'local'
+    request_snapshot.py 가 소켓 IP를 x-real-ip 로 주입하므로
+    로컬 프록시 환경에서도 실제 클라이언트 IP가 전달된다.
+    """
     xff = headers.get("x-forwarded-for", "")
     if xff:
         return xff.split(",")[0].strip()
-    return headers.get("x-real-ip", "unknown")
+    rip = headers.get("x-real-ip", "")
+    if rip:
+        return rip.strip()
+    return "local"
 
 
 # ── 엔드포인트 패턴 ──────────────────────────────────────────────────────────
@@ -249,10 +258,12 @@ def _check_account_enum(ip: str, path: str) -> Finding | None:
     unique_30s = {e for _, e in entries_30s}
     if len(unique_30s) < 3:
         return None
+    # 계정 열거는 능동적 공격 패턴 → HIGH로 차단 대상에 포함
+    score = 2.5 + min((len(unique_30s) - 3) * 0.3, 1.5)
     return Finding(
         rule_id="A07-ENUM-001",
         evidence=f"계정 열거 — IP={ip}, 30초 내 {len(unique_30s)}개 이메일 주소 스캔 (CWE-204)",
-        severity=Severity.MEDIUM,
+        severity=_score_to_severity(score),
         location="body:email — Account Enumeration",
     )
 

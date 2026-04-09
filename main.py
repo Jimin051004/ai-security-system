@@ -393,6 +393,23 @@ def _attack_type_label(rule_id: str) -> str:
         return "Workflow Step Skipping"
     if u.startswith("A06-RATE"):
         return "Rate Limit Abuse (Brute-force)"
+    # A07:2025 — Authentication Failures
+    if u.startswith("A07-JWT-001"):
+        return "JWT Algorithm Manipulation (alg:none)"
+    if u.startswith("A07-JWT-002"):
+        return "JWT Missing Signature"
+    if u.startswith("A07-JWT-003"):
+        return "JWT Payload Tampering (role:admin)"
+    if u.startswith("A07-CRED-001"):
+        return "Brute Force / 로그인 반복 공격"
+    if u.startswith("A07-CRED-002"):
+        return "Credential Stuffing / 크리덴셜 스터핑"
+    if u.startswith("A07-CRED-003"):
+        return "Weak / Default Password"
+    if u.startswith("A07-SESS"):
+        return "Session ID URL Exposure"
+    if u.startswith("A07-ENUM"):
+        return "Account Enumeration / 계정 열거"
     # A10:2025 — Mishandling of Exceptional Conditions
     if u.startswith("A10-UNDEF"):
         return "Undefined Identifier (예외 미처리)"
@@ -598,7 +615,7 @@ async def waf_api_clients() -> dict[str, Any]:
 
 
 def _module_implementation_label(module_id: str) -> str:
-    _IMPLEMENTED = {"a05", "a06", "a10"}
+    _IMPLEMENTED = {"a05", "a06", "a07", "a10"}
     return "rules" if module_id in _IMPLEMENTED else "skeleton"
 
 
