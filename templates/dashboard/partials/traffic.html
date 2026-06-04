@@ -1,0 +1,57 @@
+          <div class="card card-wide page-log-full">
+            <h2>프록시 로그</h2>
+            <p class="scroll-hint">필터는 <strong>현재 불러온 목록</strong>에만 적용됩니다. 표시 상한은 <a href="/__waf/dashboard/settings">저장소·DB 설정</a>에서 바꿀 수 있습니다.</p>
+            <p class="traffic-mini-stat" aria-live="polite">
+              <span id="traffic-stat-total">0</span>건 표시 ·
+              <span class="stat-blocked"><span id="traffic-stat-blocked">0</span>건 차단</span>
+            </p>
+            <div class="log-toolbar" role="toolbar" aria-label="로그 필터">
+              <label>Method
+                <select id="filter-method" aria-label="HTTP 메서드 필터">
+                  <option value="">전체</option>
+                  <option>GET</option>
+                  <option>POST</option>
+                  <option>PUT</option>
+                  <option>PATCH</option>
+                  <option>DELETE</option>
+                  <option>OPTIONS</option>
+                  <option>HEAD</option>
+                </select>
+              </label>
+              <label class="chk-inline"><input type="checkbox" id="filter-blocked-only" /> 차단만</label>
+              <label>Path 포함
+                <input type="search" id="filter-path" placeholder="/api …" autocomplete="off" />
+              </label>
+              <label>IP 포함
+                <input type="search" id="filter-ip" placeholder="192.168…" autocomplete="off" />
+              </label>
+              <button type="button" class="btn-ghost" id="btn-export-json">로그 JSON보내기</button>
+              <button type="button" class="btn-ghost" id="btn-copy-json">목록 JSON 복사</button>
+              <button type="button" class="btn-ghost btn-danger-outline js-traffic-reset-all">전체 로그 초기화</button>
+              <label>사이트
+                <select id="filter-site" aria-label="사이트 필터">
+                  <option value="">전체</option>
+                </select>
+              </label>
+            </div>
+            <div class="traffic-feed traffic-feed-scroll-x">
+              <table class="traffic-table">
+                <thead>
+                  <tr>
+                    <th>시각 (KST)</th>
+                    <th>사이트</th>
+                    <th>IP</th>
+                    <th>Method</th>
+                    <th>Path</th>
+                    <th>결과</th>
+                    <th>User-Agent</th>
+                    <th scope="col" class="col-actions">삭제</th>
+                  </tr>
+                </thead>
+                <tbody id="traffic-feed-body">
+                  <tr><td colspan="8" class="traffic-empty">…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p id="traffic-updated" class="feed-foot"></p>
+          </div>

@@ -1,0 +1,24 @@
+긴 uvicorn 명령 없이 실행하기
+========================
+
+1) 처음 한 번 (프로젝트 루트에서)
+   python3 -m venv system
+   source system/bin/activate
+   pip install -r requirements.txt
+   test -f .env || cp .env.example .env
+
+2) 맥 Finder
+   scripts 폴더에서 아래 파일을 더블클릭 (터미널이 열리며 실행됨)
+   - Start-Dashboard.command      → 대시보드 http://127.0.0.1:8080
+   - Start-Proxy-JuiceShop.command → 프록시 http://127.0.0.1:8081
+   - Start-Proxy-SecondSite.command → 프록시 http://127.0.0.1:8082
+
+   더블클릭이 안 되면: 터미널에서
+   chmod +x scripts/*.command
+
+3) 짧은 명령 (프로젝트 루트에서)
+   make dashboard
+   make proxy-juiceshop
+   make proxy-second
+
+.env에 SITE_ID_SECOND / UPSTREAM_URL_SECOND 를 넣으면 두 번째 프록시 스크립트·make proxy-second 가 그대로 씁니다.

@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ko" class="login-html">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>로그인 · Guardian AI</title>
+  <meta name="color-scheme" content="dark light" />
+  <link rel="icon" href="/__waf/static/favicon-guardian-shield.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/__waf/static/css/dashboard.css" />
+  <style>
+    html.login-html { color-scheme: light; }
+    html.login-html, body.login-page { margin: 0; min-height: 100%; }
+    body.login-page::before { display: none !important; content: none !important; }
+    body.login-page {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 18% 18%, rgba(79, 209, 197, 0.28), transparent 26%),
+        radial-gradient(circle at 82% 72%, rgba(139, 92, 246, 0.22), transparent 30%),
+        linear-gradient(135deg, #effcff 0%, #f8fbff 47%, #f6f1ff 100%) !important;
+      color: #0f172a;
+      overflow-x: hidden;
+    }
+    .login-wrap {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.25rem;
+      box-sizing: border-box;
+    }
+    .login-wrap::before,
+    .login-wrap::after {
+      content: "";
+      position: fixed;
+      pointer-events: none;
+      opacity: 0.55;
+    }
+    .login-wrap::before {
+      inset: 7% auto auto -7rem;
+      width: 22rem;
+      height: 22rem;
+      border: 1px solid rgba(20, 184, 166, 0.2);
+      border-radius: 42% 58% 52% 48%;
+      transform: rotate(18deg);
+    }
+    .login-wrap::after {
+      right: -5rem;
+      bottom: 6%;
+      width: 24rem;
+      height: 24rem;
+      background-image:
+        linear-gradient(120deg, rgba(15, 23, 42, 0.08) 1px, transparent 1px),
+        linear-gradient(35deg, rgba(99, 102, 241, 0.12) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: radial-gradient(circle, #000 0 58%, transparent 70%);
+    }
+    .login-card {
+      position: relative;
+      z-index: 2;
+      isolation: isolate;
+      width: 100%;
+      max-width: 430px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 252, 255, 0.78)) !important;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 30px;
+      padding: 2.1rem 2.2rem 1.85rem;
+      box-shadow: 0 30px 90px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(24px) saturate(1.2);
+      -webkit-backdrop-filter: blur(24px) saturate(1.2);
+      display: flex;
+      flex-direction: column;
+      gap: 1.15rem;
+    }
+    .login-card::before,
+    .login-card::after {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      box-shadow: 0 18px 50px rgba(15, 23, 42, 0.12);
+    }
+    .login-card::before {
+      width: 4.2rem;
+      height: 4.2rem;
+      left: -3.4rem;
+      bottom: 5.4rem;
+      background:
+        radial-gradient(circle at 50% 42%, rgba(56, 189, 248, 0.35), transparent 35%),
+        rgba(255, 255, 255, 0.9);
+    }
+    .login-card::after {
+      width: 4.5rem;
+      height: 4.5rem;
+      right: -3.5rem;
+      top: 4.2rem;
+      background:
+        radial-gradient(circle at 55% 45%, rgba(124, 58, 237, 0.2), transparent 38%),
+        rgba(255, 255, 255, 0.9);
+    }
+    .login-brand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.8rem;
+      margin-bottom: 0.6rem;
+    }
+    .login-brand-icon {
+      display: grid;
+      place-items: center;
+      width: 3rem;
+      height: 3rem;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 35% 25%, rgba(103, 232, 249, 0.95), transparent 28%),
+        linear-gradient(135deg, #08345f, #5b21b6 58%, #0f172a);
+      color: #dffcff;
+      font-size: 1.2rem;
+      box-shadow: 0 14px 32px rgba(37, 99, 235, 0.28);
+    }
+    .login-brand-text {
+      font-size: 1.35rem;
+      font-weight: 950;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+    }
+    .login-brand-sub {
+      font-size: 0.68rem;
+      color: #14b8a6;
+      margin-top: 0.05rem;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .login-title {
+      font-size: 1.55rem;
+      font-weight: 950;
+      color: #0f172a;
+      margin: 0;
+      text-align: center;
+      letter-spacing: -0.035em;
+    }
+    .login-subtitle {
+      font-size: 0.88rem;
+      color: #64748b;
+      margin: 0.45rem 0 0;
+      line-height: 1.5;
+      text-align: center;
+    }
+    .login-form-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+      margin-top: 0.25rem;
+    }
+    .login-field {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.75rem minmax(0, 1fr);
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.85rem 1rem;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.34);
+      border-radius: 14px;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+      transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+    }
+    .login-field:focus-within {
+      border-color: rgba(20, 184, 166, 0.8);
+      box-shadow: 0 14px 34px rgba(20, 184, 166, 0.14);
+      transform: translateY(-1px);
+    }
+    .login-label {
+      grid-column: 2;
+      font-size: 0.72rem;
+      font-weight: 850;
+      color: #64748b;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      display: block;
+    }
+    .login-field-icon {
+      grid-row: 1 / span 2;
+      display: grid;
+      place-items: center;
+      width: 1.7rem;
+      height: 1.7rem;
+      border-radius: 0.55rem;
+      background: linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(139, 92, 246, 0.1));
+      color: #0f766e;
+      font-size: 0.68rem;
+      font-weight: 950;
+    }
+    .login-input {
+      box-sizing: border-box;
+      grid-column: 2;
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent !important;
+      border: 0;
+      border-radius: 0;
+      color: #0f172a !important;
+      font-size: 0.98rem;
+      font-weight: 700;
+      padding: 0.08rem 0;
+      transition: color 0.15s;
+      outline: none;
+      width: 100%;
+    }
+    .login-input:hover {
+      background: transparent !important;
+    }
+    .login-input:focus {
+      background: transparent !important;
+      box-shadow: none;
+    }
+    .login-input::placeholder {
+      color: #94a3b8;
+      opacity: 1;
+    }
+    .login-btn {
+      width: 100%;
+      margin-top: 0.75rem;
+      padding: 0.95rem 1rem;
+      font-size: 1rem;
+      font-weight: 950;
+      letter-spacing: 0.02em;
+      background: linear-gradient(90deg, #35c7e8 0%, #5b7cfa 48%, #8b3ff4 100%);
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      cursor: pointer;
+      box-shadow: 0 16px 34px rgba(91, 124, 250, 0.3);
+      transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s;
+    }
+    .login-btn:hover {
+      opacity: 0.95;
+      box-shadow: 0 18px 42px rgba(139, 63, 244, 0.32);
+    }
+    .login-btn:active {
+      transform: scale(0.99);
+    }
+    .login-error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 14px;
+      color: #b91c1c;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 0.65rem 0.9rem;
+      line-height: 1.4;
+    }
+    .login-notice {
+      background: #ecfdf5;
+      border: 1px solid #6ee7b7;
+      border-radius: 14px;
+      color: #047857;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 0.65rem 0.9rem;
+      line-height: 1.4;
+    }
+    .login-notice-tenant {
+      background: #eff6ff;
+      border-color: #93c5fd;
+      color: #155e75;
+      font-weight: 500;
+    }
+    .login-notice-tenant code {
+      font-size: 0.82rem;
+      background: rgba(255, 255, 255, 0.85);
+      padding: 0.1rem 0.35rem;
+      border-radius: 5px;
+    }
+    .tenant-site-code {
+      display: inline-block;
+      margin-top: 0.35rem;
+      font-size: 0.92rem !important;
+      font-weight: 700;
+      word-break: break-all;
+    }
+    .login-alt {
+      text-align: center;
+      font-size: 0.84rem;
+      color: #475569;
+      margin: -0.35rem 0 0;
+    }
+    .login-alt a {
+      color: #0f766e;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .login-alt a:hover {
+      text-decoration: underline;
+    }
+    .login-footer {
+      text-align: center;
+      font-size: 0.74rem;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body class="login-page">
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="login-brand-icon" aria-hidden="true">AI</div>
+        <div>
+          <div class="login-brand-text">Guardian AI</div>
+          <div class="login-brand-sub">AI-powered protection</div>
+        </div>
+      </div>
+      <div>
+        <h1 class="login-title">Welcome Back</h1>
+        <p class="login-subtitle">설치형 WAF 콘솔에 접속해 실시간 탐지와 차단 상태를 확인하세요.</p>
+      </div>
+      {% if notice %}
+      <div class="login-notice" role="status">{{ notice }}</div>
+      {% endif %}
+      {% if tenant_site_id %}
+      <div class="login-notice login-notice-tenant" role="status">
+        프록시 환경 변수 <code>SITE_ID</code>에 아래 값을 입력하세요 (대시보드와 동일해야 로그가 연결됩니다).<br />
+        <code class="tenant-site-code">{{ tenant_site_id }}</code>
+      </div>
+      {% endif %}
+      {% if error %}
+      <div class="login-error" role="alert">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/login" autocomplete="on" class="login-form">
+        <div class="login-form-panel">
+          <div class="login-field">
+            <span class="login-field-icon" aria-hidden="true">ID</span>
+            <label class="login-label" for="username">아이디</label>
+            <input
+              class="login-input"
+              type="text"
+              id="username"
+              name="username"
+              placeholder="아이디"
+              autocomplete="username"
+              required
+              autofocus
+            />
+          </div>
+          <div class="login-field">
+            <span class="login-field-icon" aria-hidden="true">PW</span>
+            <label class="login-label" for="password">비밀번호</label>
+            <input
+              class="login-input"
+              type="password"
+              id="password"
+              name="password"
+              placeholder="비밀번호 입력"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+        </div>
+        <button type="submit" class="login-btn">로그인</button>
+      </form>
+      {% if allow_register %}
+      <p class="login-alt">New to Guardian AI? <a href="/register">Sign Up</a></p>
+      {% endif %}
+      <div class="login-footer">Real-time WAF Monitoring · OWASP 2025</div>
+    </div>
+  </div>
+</body>
+</html>

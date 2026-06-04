@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>프록시 로컬 로그 · {{ site_id | e }}</title>
+  <meta name="color-scheme" content="dark" />
+  <link rel="stylesheet" href="/__waf/static/css/dashboard.css" />
+  <style>
+    body { margin: 0; padding: 1rem 1.25rem 2rem; font-family: system-ui, sans-serif; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+    .toolbar h1 { font-size: 1.15rem; margin: 0; flex: 1 1 auto; }
+    .mono { font-family: ui-monospace, monospace; font-size: 0.82rem; }
+    .traffic-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--glass-border, rgba(255,255,255,.12)); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th, td { padding: 0.45rem 0.55rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,.08); }
+    th { background: rgba(15,23,42,.6); font-weight: 700; white-space: nowrap; }
+    tr:hover td { background: rgba(99,102,241,.06); }
+    .blk { color: #f97316; font-weight: 600; }
+    .ok { color: #94a3b8; }
+    .muted { font-size: 0.76rem; color: #64748b; }
+    .status-card { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .55rem; margin: 0 0 1rem; padding: .85rem; border: 1px solid var(--glass-border, rgba(255,255,255,.12)); border-radius: 12px; background: rgba(15,23,42,.35); }
+    .status-card span { display: block; color: #94a3b8; font-size: .72rem; margin-bottom: .2rem; }
+    .status-card strong { font-size: .86rem; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <h1>프록시 로컬 트래픽 <span class="mono muted">SITE_ID={{ site_id | e }}</span></h1>
+    <span class="muted" id="upd">마지막 갱신: —</span>
+    <button type="button" class="btn-ghost" id="btn-ref">수동 갱신</button>
+    <label class="chk-inline muted"><input type="checkbox" id="auto" checked /> 2초마다 갱신</label>
+    <a class="btn-ghost" href="/__waf/worker/logout">로그아웃</a>
+  </div>
+  <p class="muted" style="margin-top:0;">이 화면은 <strong>이 프록시 프로세스의 SQLite</strong>만 읽습니다. 중앙 대시보드(8080)와 DB가 다르면 여기서만 보이는 기록이 있을 수 있습니다.</p>
+  <section class="status-card" aria-label="AI 2차 탐지 상태">
+    <div><span>AI 2차 탐지</span><strong id="ai-enabled">—</strong></div>
+    <div><span>모델</span><strong class="mono" id="ai-model">—</strong></div>
+    <div><span>최근 판단</span><strong id="ai-decision">—</strong></div>
+    <div><span>최근 오류</span><strong id="ai-error">—</strong></div>
+    <div><span>지연시간</span><strong id="ai-latency">—</strong></div>
+  </section>
+  <div class="traffic-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>시간</th>
+          <th>IP</th>
+          <th>M</th>
+          <th>경로</th>
+          <th>상태</th>
+          <th>차단</th>
+          <th>탐지 요약</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <script>
+(function () {
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+  function summaryFindings(bf) {
+    if (!bf || !bf.length) return "—";
+    var f = bf[0];
+    var rid = f.rule_id || "—";
+    var ow = f.owasp_id || "—";
+    var atk = f.attack_type || "—";
+    if (bf.length === 1) return ow + " · " + atk + " · " + rid;
+    return ow + " · " + atk + " 외 " + (bf.length - 1) + "건";
+  }
+  function render(events) {
+    var tb = document.getElementById("rows");
+    if (!tb) return;
+    var rows = events || [];
+    var html = "";
+    for (var i = 0; i < rows.length; i++) {
+      var e = rows[i];
+      var blocked = !!e.blocked;
+      html += "<tr>";
+      html += "<td class='mono'>" + esc(e.time_iso) + "</td>";
+      html += "<td class='mono'>" + esc(e.client_ip) + "</td>";
+      html += "<td class='mono'>" + esc(e.method) + "</td>";
+      html += "<td class='mono'>" + esc(e.path) + "</td>";
+      html += "<td class='mono'>" + esc(e.status_code) + "</td>";
+      html += "<td class='" + (blocked ? "blk" : "ok") + "'>" + (blocked ? "차단" : "통과") + "</td>";
+      html += "<td>" + esc(summaryFindings(e.block_findings)) + "</td>";
+      html += "</tr>";
+    }
+    if (!html) {
+      html = "<tr><td colspan='7' class='muted'>저장된 이벤트가 없습니다. 공격/트래픽을 한 번 보낸 뒤 갱신하세요.</td></tr>";
+    }
+    tb.innerHTML = html;
+    var u = document.getElementById("upd");
+    if (u) u.textContent = "마지막 갱신: " + new Date().toLocaleString("ko-KR");
+  }
+  function renderAiStatus(s) {
+    s = s || {};
+    var enabled = document.getElementById("ai-enabled");
+    var model = document.getElementById("ai-model");
+    var decision = document.getElementById("ai-decision");
+    var error = document.getElementById("ai-error");
+    var latency = document.getElementById("ai-latency");
+    if (enabled) enabled.textContent = s.enabled ? "ON" : "OFF";
+    if (model) model.textContent = (s.provider || "—") + " · " + (s.model || "—");
+    if (decision) {
+      var conf = s.last_confidence == null ? "" : " · " + Number(s.last_confidence).toFixed(2);
+      decision.textContent = (s.last_decision || "—") + conf;
+    }
+    if (error) error.textContent = s.last_error_type ? (s.last_error_type + (s.last_error_detail ? " · " + s.last_error_detail : "")) : "—";
+    if (latency) latency.textContent = s.last_latency_ms == null ? "—" : String(s.last_latency_ms) + "ms";
+  }
+  async function loadAiStatus() {
+    try {
+      var r = await fetch("/__waf/worker/api/ai-status", { credentials: "same-origin" });
+      if (!r.ok) return;
+      var d = await r.json();
+      renderAiStatus(d.ai_second_pass || {});
+    } catch (e) {}
+  }
+  async function load() {
+    try {
+      var r = await fetch("/__waf/worker/api/traffic", { credentials: "same-origin" });
+      if (r.status === 401) {
+        window.location.href = "/__waf/worker/login";
+        return;
+      }
+      if (!r.ok) return;
+      var d = await r.json();
+      render(d.events || []);
+      loadAiStatus();
+    } catch (e) {}
+  }
+  var bootEvents = {{ events | tojson }};
+  var bootAi = {{ ai_second_pass | tojson }};
+  render(Array.isArray(bootEvents) ? bootEvents : []);
+  renderAiStatus(bootAi || {});
+  document.getElementById("btn-ref").addEventListener("click", load);
+  var auto = document.getElementById("auto");
+  var timer = setInterval(function () {
+    if (auto && auto.checked) load();
+  }, 2000);
+  auto.addEventListener("change", function () {
+    if (auto.checked) load();
+  });
+})();
+  </script>
+</body>
+</html>

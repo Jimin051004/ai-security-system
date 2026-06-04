@@ -4,10 +4,191 @@
  *
  * 역할:
  *  1. 서버 boot JSON에서 alert_message를 읽어 브라우저 알림 표시
- *  2. 페이지 내 OWASP 2025 카테고리 설명 동적 삽입
+ *  2. fetch 403 → 인터셉터가 sessionStorage 에 넣은 전체 findings 로 카드·헤드라인 갱신(증거 전체·복수 건)
+ *  3. 페이지 내 OWASP 2025 카테고리 설명 동적 삽입
  */
 (function () {
   "use strict";
+
+  var BLOCK_PAYLOAD_KEY = "__waf_block_payload";
+
+  function escapeHtml(s) {
+    var d = document.createElement("div");
+    d.textContent = s == null ? "" : String(s);
+    return d.innerHTML;
+  }
+
+  function buildAlertFromFindings(findings) {
+    if (!findings || !findings.length) return null;
+    if (findings.length === 1) {
+      var f = findings[0];
+      var headline =
+        (f.attack_type || "알 수 없는 공격 유형") + " 취약점이 발견되어 차단되었습니다";
+      var subline =
+        "OWASP " +
+        (f.owasp_id || "—") +
+        " · " +
+        (f.category || "—") +
+        " · 규칙 " +
+        (f.rule_id || "—") +
+        " · 탐지 위치 " +
+        (f.location || "—");
+      return "[WAF 차단] " + headline + "\n" + subline;
+    }
+    var types = [];
+    var seen = {};
+    for (var i = 0; i < findings.length; i++) {
+      var t = findings[i].attack_type || "—";
+      if (!seen[t]) {
+        seen[t] = true;
+        types.push(t);
+      }
+    }
+    var typesStr = types.slice(0, 4).join(", ");
+    if (types.length > 4) typesStr += " 외 " + (types.length - 4) + "종";
+    var headline2 = "복수 취약점 패턴이 발견되어 차단되었습니다";
+    var subline2 =
+      "탐지된 유형: " + typesStr + " (총 " + findings.length + "건 규칙 매칭)";
+    return "[WAF 차단] " + headline2 + "\n" + subline2;
+  }
+
+  function updateHeadlineFromFindings(findings) {
+    var h1 = document.querySelector(".wb-headline");
+    var sub = document.querySelector(".wb-subline");
+    if (!findings || !findings.length || !h1) return;
+    if (findings.length === 1) {
+      var f = findings[0];
+      h1.textContent =
+        (f.attack_type || "알 수 없는 공격 유형") +
+        " 취약점이 발견되어 차단되었습니다";
+      if (sub) {
+        sub.textContent =
+          "OWASP " +
+          (f.owasp_id || "—") +
+          " · " +
+          (f.category || "—") +
+          " · 규칙 " +
+          (f.rule_id || "—") +
+          " · 탐지 위치 " +
+          (f.location || "—");
+      }
+      return;
+    }
+    var types = [];
+    var seen = {};
+    for (var j = 0; j < findings.length; j++) {
+      var t2 = findings[j].attack_type || "—";
+      if (!seen[t2]) {
+        seen[t2] = true;
+        types.push(t2);
+      }
+    }
+    var typesStr2 = types.slice(0, 4).join(", ");
+    if (types.length > 4) typesStr2 += " 외 " + (types.length - 4) + "종";
+    h1.textContent = "복수 취약점 패턴이 발견되어 차단되었습니다";
+    if (sub) {
+      sub.textContent =
+        "탐지된 유형: " + typesStr2 + " (총 " + findings.length + "건 규칙 매칭)";
+    }
+  }
+
+  function findingCardHtml(f) {
+    var rawSev = String(f.severity || "high").toLowerCase();
+    var sev =
+      rawSev === "critical" ||
+      rawSev === "high" ||
+      rawSev === "medium" ||
+      rawSev === "low"
+        ? rawSev
+        : "high";
+    var ev =
+      f.evidence != null && String(f.evidence) !== ""
+        ? String(f.evidence)
+        : "—";
+    var rex =
+      f.rule_explain != null && String(f.rule_explain) !== ""
+        ? String(f.rule_explain)
+        : "—";
+    var sevUpper = String(f.severity || "high").toUpperCase();
+    return (
+      '<div class="wb-finding" data-sev="' +
+      escapeHtml(sev) +
+      '">' +
+      '<div class="wb-finding-header">' +
+      '<span class="wb-owasp-badge">' +
+      escapeHtml(f.owasp_id || "—") +
+      "</span>" +
+      '<span class="wb-category-label">' +
+      escapeHtml(f.category || "—") +
+      "</span>" +
+      '<span class="wb-sev-pill wb-sev-' +
+      sev +
+      '">' +
+      escapeHtml(sevUpper) +
+      "</span>" +
+      "</div>" +
+      '<div class="wb-attack-type">' +
+      escapeHtml(f.attack_type || "—") +
+      "</div>" +
+      '<table class="wb-detail-table"><tbody>' +
+      '<tr><td class="wb-dt-key">규칙 설명</td><td class="wb-dt-val wb-rule-explain">' +
+      escapeHtml(rex) +
+      "</td></tr>" +
+      '<tr><td class="wb-dt-key">규칙 ID</td><td><code class="wb-code">' +
+      escapeHtml(f.rule_id || "—") +
+      "</code></td></tr>" +
+      '<tr><td class="wb-dt-key">탐지 위치</td><td class="wb-dt-val">' +
+      escapeHtml(f.location || "—") +
+      "</td></tr>" +
+      '<tr><td class="wb-dt-key">탐지 증거</td><td class="wb-dt-val"><pre class="wb-evidence wb-evidence-block">' +
+      escapeHtml(ev) +
+      "</pre></td></tr>" +
+      "</tbody></table></div>"
+    );
+  }
+
+  /** @returns {null|Array} 복원한 findings 또는 null */
+  function applySnapshotFromStorage() {
+    var raw = null;
+    try {
+      raw = sessionStorage.getItem(BLOCK_PAYLOAD_KEY);
+    } catch (e) {
+      return null;
+    }
+    if (!raw) return null;
+    var data;
+    try {
+      data = JSON.parse(raw);
+    } catch (e2) {
+      try {
+        sessionStorage.removeItem(BLOCK_PAYLOAD_KEY);
+      } catch (e3) {}
+      return null;
+    }
+    if (
+      !data ||
+      !data.blocked ||
+      !data.findings ||
+      !data.findings.length
+    ) {
+      try {
+        sessionStorage.removeItem(BLOCK_PAYLOAD_KEY);
+      } catch (e4) {}
+      return null;
+    }
+    var root = document.getElementById("wb-findings-root");
+    if (!root) return null;
+    var html = "";
+    for (var i = 0; i < data.findings.length; i++) {
+      html += findingCardHtml(data.findings[i]);
+    }
+    root.innerHTML = html;
+    updateHeadlineFromFindings(data.findings);
+    try {
+      sessionStorage.removeItem(BLOCK_PAYLOAD_KEY);
+    } catch (e5) {}
+    return data.findings;
+  }
 
   /* ── OWASP Top 10 : 2025 카테고리 정의 ─────────────────────────────── */
   var OWASP_2025 = {
@@ -143,7 +324,13 @@
   /* ── 메인 초기화 ─────────────────────────────────────────────────────── */
   function init() {
     var boot = readBootData();
-    showAlert(boot);
+    var snapFindings = applySnapshotFromStorage();
+    if (snapFindings && snapFindings.length) {
+      var am = buildAlertFromFindings(snapFindings);
+      showAlert({ alert_message: am || boot.alert_message });
+    } else {
+      showAlert(boot);
+    }
     injectOwaspInfo();
     localizeSevPills();
   }

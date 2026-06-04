@@ -22,8 +22,14 @@
     return s.indexOf("/__waf/") !== -1;
   }
 
+  var BLOCK_PAYLOAD_KEY = "__waf_block_payload";
+
   function wafRedirect(data) {
     if (!data || !data.blocked) return;
+    /* 차단 페이지에서 전체 findings·증거(서버 JSON 그대로)를 쓰도록 저장. 쿼리만 쓰면 길이·건수 제한. */
+    try {
+      sessionStorage.setItem(BLOCK_PAYLOAD_KEY, JSON.stringify(data));
+    } catch (e) {}
     var f = (data.findings && data.findings[0]) || {};
     var p = new URLSearchParams({
       owasp_id: f.owasp_id || "",
@@ -32,7 +38,7 @@
       rule_id: f.rule_id || "",
       severity: f.severity || "high",
       location: f.location || "",
-      evidence: (f.evidence || "").slice(0, 200),
+      evidence: (f.evidence || "").slice(0, 480),
     });
     window.location.replace("/__waf/blocked?" + p.toString());
   }

@@ -1,22 +1,46 @@
-"""Reverse proxy: client → WAF scan → UPSTREAM (any origin via UPSTREAM_URL)."""
+"""Reverse proxy: client → WAF scan → UPSTREAM (any origin via UPSTREAM_URL).
+
+이 서버는 단일 사이트의 WAF 프록시 워커입니다.
+중앙 대시보드는 별도 dashboard_app.py 를 실행하세요.
+"""
 
 from __future__ import annotations
 
+import json
 import os
-import re
+import time
 from datetime import datetime
 from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+except ImportError:
+    pass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
-from pydantic import BaseModel, Field
 import jinja2
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, Request, Response
+from markupsafe import Markup
+from pydantic import BaseModel, Field
 from starlette.datastructures import MutableHeaders
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+import auth
+from ai_second_pass import (
+    ai_block_min_confidence,
+    ai_second_pass_status,
+    judge_request_with_ai,
+    record_ai_final_decision,
+    verdict_to_finding,
+)
+from waf_worker_console import attach_worker_console
 
 from detector import (
     all_findings,
@@ -24,11 +48,25 @@ from detector import (
     scan_request,
     waf_blocking_findings,
 )
-from owasp import MODULES
 from owasp.types import Finding, ModuleScanResult, RequestContext, Severity
 from request_snapshot import DEFAULT_BODY_PREVIEW_MAX, request_to_context
+from waf_block_response import (
+    blocking_payload_dict,
+    finding_enriched_dict,
+    prefer_waf_block_html,
+    waf_blocked_html_response,
+)
+from waf_rule_explain import rule_explain
 
 import traffic_log
+
+# 멀티사이트 레지스트리 (선택적 로드 — 미존재 시 단일 UPSTREAM_URL 모드 유지)
+try:
+    import site_registry as _site_registry
+    _MULTI_SITE_ENABLED = True
+except ImportError:
+    _site_registry = None  # type: ignore[assignment]
+    _MULTI_SITE_ENABLED = False
 
 UPSTREAM_RAW = os.environ.get("UPSTREAM_URL", "http://127.0.0.1:3001").rstrip("/")
 _parsed = urlparse(UPSTREAM_RAW)
@@ -39,8 +77,93 @@ UPSTREAM_BASE = UPSTREAM_RAW
 UPSTREAM_HOST_HEADER = _parsed.netloc
 UPSTREAM_ORIGIN = f"{_parsed.scheme}://{_parsed.netloc}".rstrip("/")
 
-# LAN 등에서 클라이언트가 프록시 호스트(예: 192.168.x.x:8080)로 접속할 때,
-# 업스트림 HTML/JS에 박힌 http://127.0.0.1:3001 절대 URL 때문에 브라우저가 로컬로 요청하는 문제 방지
+# ── 멀티사이트 라우팅 헬퍼 ────────────────────────────────────────────────────
+
+def _resolve_upstream_for_request(request_host: str) -> tuple[str, str, str, str | None]:
+    """Host 헤더로 업스트림 URL 결정.
+
+    반환: (upstream_base, upstream_host_header, upstream_origin, route_config_or_None)
+    - 등록된 사이트가 있으면 site_registry 에서 조회
+    - 없으면 환경변수 UPSTREAM_URL 을 fallback 으로 사용
+    """
+    if _MULTI_SITE_ENABLED and _site_registry is not None:
+        route = _site_registry.lookup_route(request_host)
+        if route is not None:
+            from urllib.parse import urlparse as _up
+            p = _up(route.origin_url)
+            host_hdr = p.netloc
+            origin = f"{p.scheme}://{p.netloc}".rstrip("/")
+            return route.origin_url, host_hdr, origin, route
+    return UPSTREAM_BASE, UPSTREAM_HOST_HEADER, UPSTREAM_ORIGIN, None
+
+
+# 이 프록시가 담당하는 사이트 식별자 (중앙 대시보드에서 구분에 사용)
+SITE_ID = os.environ.get("SITE_ID", "default")
+# 중앙 사이트 필터에 표시할 이름·주소 (ingest 로 전달; 비우면 Host 기반 URL 만 보냄)
+SITE_DISPLAY_NAME = os.environ.get("SITE_DISPLAY_NAME", "").strip()
+# 사용자가 .env 등에 명시한 값(.strip() 결과가 빈 문자열이면 「미설정」으로 간주)
+CENTRAL_DASHBOARD_URL_EXPLICIT = os.environ.get("CENTRAL_DASHBOARD_URL", "").strip().rstrip("/")
+SENSOR_TOKEN_EXPLICIT = os.environ.get("SENSOR_TOKEN", "").strip()
+
+_RESOLVED_INGEST_CACHE: tuple[str, str] | None = None
+
+
+def _invalidate_resolved_ingest_cache() -> None:
+    global _RESOLVED_INGEST_CACHE
+    _RESOLVED_INGEST_CACHE = None
+
+
+def _resolved_central_ingest_pair() -> tuple[str, str]:
+    """중앙 ingest URL·토큰. 미설정이면 로컬 데모 기본값(127.0.0.1:8080 + admin sensor_token).
+
+    원격 분리 배포에서는 CENTRAL_DASHBOARD_URL/SENSOR_TOKEN 을 명시하거나,
+    WAF_DISABLE_DEFAULT_CENTRAL_INGEST=true 로 자동 채우기를 끄세요.
+    """
+    global _RESOLVED_INGEST_CACHE
+    if _RESOLVED_INGEST_CACHE is not None:
+        return _RESOLVED_INGEST_CACHE
+
+    auth.ensure_default_users()
+
+    disable_auto = (
+        os.environ.get("WAF_DISABLE_DEFAULT_CENTRAL_INGEST", "").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+
+    fallback = (
+        os.environ.get("WAF_FALLBACK_CENTRAL_URL", "http://127.0.0.1:8080").strip().rstrip("/")
+    )
+
+    if CENTRAL_DASHBOARD_URL_EXPLICIT:
+        curl = CENTRAL_DASHBOARD_URL_EXPLICIT
+    elif disable_auto:
+        curl = ""
+    else:
+        curl = fallback if fallback else "http://127.0.0.1:8080"
+
+    tok = SENSOR_TOKEN_EXPLICIT
+    if not tok and curl:
+        cfg = auth.get_sensor_config_for_username("admin")
+        if cfg:
+            tok = str(cfg.get("sensor_token") or "").strip()
+
+    _RESOLVED_INGEST_CACHE = (curl, tok)
+    return curl, tok
+
+
+# 마지막 중앙 ingest 시도 상태 — GET /__proxy/health (진단). 첫 ingest 전까지는 peek_* 로 해석하세요.
+_CENTRAL_INGEST_LAST: dict[str, Any] = {
+    "attempted_iso": "",
+    "ok": None,
+    "http_status": None,
+    "detail": "",
+}
+
+_TZ_SEOUL = ZoneInfo("Asia/Seoul")
+_PROCESS_STARTED_AT = datetime.now(_TZ_SEOUL).strftime("%Y-%m-%d %H:%M:%S")
+
+# LAN 등에서 클라이언트가 프록시 호스트로 접속할 때,
+# 업스트림 HTML/JS에 박힌 절대 URL을 공개 origin으로 치환
 PROXY_REWRITE_MAX_BYTES = int(os.environ.get("PROXY_REWRITE_MAX_BYTES", str(6 * 1024 * 1024)))
 
 
@@ -53,6 +176,51 @@ def _waf_block_min_severity() -> Severity:
     return parse_severity(os.environ.get("WAF_BLOCK_MIN_SEVERITY", "high"), Severity.HIGH)
 
 
+# 중앙 대시보드에 저장된 사이트별 WAF 정책 (짧게 캐시)
+_REMOTE_SITE_WAF: dict[str, Any] = {"t": 0.0, "value": True}
+_SITE_WAF_POLICY_TTL = float(os.environ.get("WAF_SITE_POLICY_CACHE_SEC", "3"))
+
+
+def _follow_central_site_waf_policy() -> bool:
+    if os.environ.get("WAF_FOLLOW_SITE_POLICY", "true").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return False
+    curl, tok = _resolved_central_ingest_pair()
+    return bool(curl and tok)
+
+
+async def _effective_waf_request_gate_enabled() -> bool:
+    """환경변수 WAF 끔 → 항상 False. 중앙 연동 시 사이트별 정책을 주기적으로 조회."""
+    if not _waf_enabled():
+        return False
+    if not _follow_central_site_waf_policy():
+        return True
+    now = time.monotonic()
+    if now - float(_REMOTE_SITE_WAF["t"]) < _SITE_WAF_POLICY_TTL:
+        return bool(_REMOTE_SITE_WAF["value"])
+    central, tok = _resolved_central_ingest_pair()
+    if not central or not tok:
+        return True
+    url = f"{central}/__waf/api/sensor/site-waf?site={quote(str(SITE_ID).strip(), safe='')}"
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(url, headers={"X-Sensor-Token": tok})
+        if resp.status_code == 200:
+            raw = resp.json()
+            en = bool(raw.get("waf_enabled", True))
+            _REMOTE_SITE_WAF["value"] = en
+            _REMOTE_SITE_WAF["t"] = now
+            return en
+    except Exception:
+        pass
+    _REMOTE_SITE_WAF["t"] = now
+    return bool(_REMOTE_SITE_WAF["value"])
+
+
 def _body_preview_max() -> int:
     raw = os.environ.get("WAF_BODY_PREVIEW_MAX", "").strip()
     if not raw:
@@ -61,6 +229,162 @@ def _body_preview_max() -> int:
         return max(256, min(int(raw), 1024 * 1024))
     except ValueError:
         return DEFAULT_BODY_PREVIEW_MAX
+
+
+def _sensor_public_origin_from_request(request: Request) -> str:
+    """브라우저 기준 프록시 공개 주소(http(s)://host:port)."""
+    xf = (request.headers.get("x-forwarded-proto") or "").strip().lower()
+    proto = xf.split(",")[0].strip() if xf else ""
+    if proto not in ("http", "https"):
+        proto = str(request.url.scheme or "http").lower()
+        if proto not in ("http", "https"):
+            proto = "http"
+    host = (request.headers.get("host") or "").strip()
+    if not host and getattr(request.url, "netloc", None):
+        host = str(request.url.netloc).strip()
+    if not host:
+        return ""
+    return f"{proto}://{host}".rstrip("/")
+
+
+def _client_ip_for_log(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    rip = request.headers.get("x-real-ip")
+    if rip:
+        return rip.strip()
+    if request.client:
+        return request.client.host or "—"
+    return "—"
+
+
+def _event_payload(
+    request: Request,
+    *,
+    status_code: int,
+    blocked: bool,
+    block_findings: tuple[dict[str, str], ...] = (),
+) -> dict[str, Any]:
+    ua = request.headers.get("user-agent") or "—"
+    out: dict[str, Any] = {
+        "site_id": SITE_ID,
+        "time_iso": datetime.now(_TZ_SEOUL).strftime("%Y-%m-%d %H:%M:%S"),
+        "client_ip": _client_ip_for_log(request),
+        "method": request.method.upper(),
+        "path": request.url.path or "/",
+        "user_agent": ua[:512],
+        "status_code": int(status_code),
+        "blocked": bool(blocked),
+        "block_findings": [dict(x) for x in (block_findings if blocked else ())],
+    }
+    if SITE_DISPLAY_NAME:
+        out["sensor_label"] = SITE_DISPLAY_NAME[:128]
+    spoiler = os.environ.get("SENSOR_PUBLIC_URL", "").strip()
+    origin = spoiler or _sensor_public_origin_from_request(request)
+    if origin:
+        out["sensor_public_origin"] = origin[:512]
+    return out
+
+
+def _truncate_note(s: str, max_len: int = 400) -> str:
+    s = (s or "").strip().replace("\n", " ")
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3] + "..."
+
+
+async def _send_central_log(event: dict[str, Any]) -> None:
+    stamp = datetime.now(_TZ_SEOUL).strftime("%Y-%m-%d %H:%M:%S")
+    CENTRAL_DASHBOARD_URL, SENSOR_TOKEN = _resolved_central_ingest_pair()
+    peek_configured = bool(CENTRAL_DASHBOARD_URL and SENSOR_TOKEN)
+    if not peek_configured:
+        _CENTRAL_INGEST_LAST.update(
+            {
+                "configured": False,
+                "central_dashboard_url_tail": "",
+                "attempted_iso": stamp,
+                "ok": False,
+                "http_status": None,
+                "detail": _truncate_note(
+                    "중앙 ingest 비활성: URL 또는 admin sensor_token 없음 "
+                    "(WAF_DISABLE_DEFAULT_CENTRAL_INGEST 설정 여부와 waf_auth 내 admin 확인)"
+                ),
+            }
+        )
+        return
+
+    url = f"{CENTRAL_DASHBOARD_URL}/__waf/api/ingest"
+    payload = dict(event)
+    payload["sensor_token"] = SENSOR_TOKEN
+    attempt_base = {
+        "configured": True,
+        "central_dashboard_url_tail": CENTRAL_DASHBOARD_URL[-64:] if CENTRAL_DASHBOARD_URL else "",
+        "attempted_iso": stamp,
+        "last_ingest_path": str(payload.get("path") or "/")[:256],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                url,
+                json=payload,
+                headers={"X-Sensor-Token": SENSOR_TOKEN},
+            )
+    except Exception as exc:  # noqa: BLE001
+        attempt_base.update(
+            {
+                "ok": False,
+                "http_status": None,
+                "detail": _truncate_note(str(exc)),
+            }
+        )
+        _CENTRAL_INGEST_LAST.update(attempt_base)
+        return
+
+    txt = ""
+    try:
+        txt = (resp.text or "")[:512]
+    except Exception:
+        txt = ""
+
+    ok = resp.status_code == 200
+    attempt_base.update(
+        {
+            "ok": ok,
+            "http_status": resp.status_code,
+            "detail": (
+                ""
+                if ok
+                else _truncate_note(txt or resp.reason_phrase or f"HTTP {resp.status_code}")
+            ),
+        }
+    )
+    _CENTRAL_INGEST_LAST.update(attempt_base)
+    # 중앙 서버 장애가 실제 사이트 차단/프록시 동작을 막으면 안 된다.
+
+
+async def _record_proxy_event(
+    request: Request,
+    *,
+    status_code: int,
+    blocked: bool,
+    block_findings: tuple[dict[str, str], ...] = (),
+) -> None:
+    await traffic_log.record(
+        request,
+        status_code=status_code,
+        blocked=blocked,
+        block_findings=block_findings,
+        site_id=SITE_ID,
+    )
+    await _send_central_log(
+        _event_payload(
+            request,
+            status_code=status_code,
+            blocked=blocked,
+            block_findings=block_findings,
+        )
+    )
 
 
 HOP_BY_HOP = frozenset(
@@ -77,100 +401,66 @@ HOP_BY_HOP = frozenset(
     }
 )
 
-app = FastAPI(title="AI Security System", description="Reverse proxy to upstream web app")
-_BASE = Path(__file__).resolve().parent
+app = FastAPI(
+    title="AI Security System — WAF Proxy",
+    description=f"Reverse proxy (site: {SITE_ID}) → {UPSTREAM_BASE}",
+)
+_WAF_SESSION_SECRET = os.environ.get(
+    "WAF_SECRET_KEY", "waf-dashboard-dev-secret-change-in-production"
+)
+app.add_middleware(SessionMiddleware, secret_key=_WAF_SESSION_SECRET, https_only=False)
+_BASE = Path(__file__).resolve().parent  # 프로젝트 루트 (dotenv 로드 경로와 동일)
+
+
+def _tojson_filter(value: Any) -> Markup:
+    text = json.dumps(value, ensure_ascii=False, default=str)
+    text = text.replace("</", "<\\/")
+    return Markup(text)
+
+
 _jinja_env = jinja2.Environment(
     loader=jinja2.FileSystemLoader(str(_BASE / "templates")),
     autoescape=jinja2.select_autoescape(["html", "xml"]),
 )
+_jinja_env.filters["tojson"] = _tojson_filter
+
+
+@app.on_event("startup")
+async def _main_startup() -> None:
+    auth.ensure_default_users()
+    if _MULTI_SITE_ENABLED and _site_registry is not None:
+        try:
+            _site_registry.init()
+        except Exception as _exc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning("site_registry init failed: %s", _exc)
 
 METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
-
-# Juice Shop 등 업스트림에도 /dashboard·/api/... 가 있어 catch-all에 먹히면 프록시 UI 대신 업스트림이 뜸.
-# 프록시 전용 UI는 항상 이 접두사(및 아래 예외 경로)로만 노출.
 WAF_UI_PREFIX = "/__waf"
 
-_PROCESS_STARTED_AT = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
 
-
-def _normalize_proxy_path_segment(full_path: str) -> str:
-    """catch-all 에서 온 하위 경로 정규화 (끝 슬래시·대소문자 비교용)."""
-    return (full_path or "").strip().rstrip("/")
-
-
-def _is_waf_dashboard_path(norm: str) -> bool:
-    n = norm.casefold()
-    return n == "dashboard" or n == "__waf/dashboard"
-
-
-def _is_waf_summary_api_path(norm: str) -> bool:
-    n = norm.casefold()
-    return n in ("api/dashboard/summary", "__waf/api/summary")
-
-
-async def _probe_upstream() -> tuple[bool, str]:
-    """업스트림에 연결 가능한지 확인(404 등은 서버가 살아 있는 것으로 간주, 5xx·연결 실패만 불량)."""
-    timeout = httpx.Timeout(3.0)
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            r = await client.head(UPSTREAM_BASE, timeout=timeout)
-            if r.status_code == 405:
-                r = await client.get(UPSTREAM_BASE, timeout=timeout)
-            ok = r.status_code < 500
-            return (ok, "" if ok else f"HTTP {r.status_code}")
-    except httpx.HTTPError as exc:
-        return (False, str(exc)[:200])
-    except OSError as exc:
-        return (False, str(exc)[:200])
-
-
-def _dashboard_summary_dict(*, upstream_ok: bool, upstream_error: str) -> dict[str, Any]:
-    return {
-        "status": "ok",
-        "upstream": UPSTREAM_BASE,
-        "upstream_ok": upstream_ok,
-        "upstream_error": upstream_error,
-        "waf_enabled": _waf_enabled(),
-        "waf_block_min_severity": _waf_block_min_severity().value,
-        "body_preview_max": _body_preview_max(),
-    }
-
-
-def _client_ip(request: Request) -> str:
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
-    rip = request.headers.get("x-real-ip")
-    if rip:
-        return rip.strip()
-    if request.client:
-        return request.client.host or "—"
-    return "—"
-
-
-def _access_snapshot(request: Request) -> dict[str, Any]:
-    u = request.url
-    return {
-        "client_ip": _client_ip(request),
-        "x_forwarded_for": request.headers.get("x-forwarded-for") or "",
-        "x_real_ip": request.headers.get("x-real-ip") or "",
-        "user_agent": request.headers.get("user-agent") or "—",
-        "method": request.method,
-        "path": u.path,
-        "full_url": str(u),
-        "host_header": request.headers.get("host") or "—",
-        "referer": request.headers.get("referer") or "—",
-        "accept_language": request.headers.get("accept-language") or "—",
-    }
+def _waf_unknown_path_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content={
+            "detail": "Unknown WAF path. Central dashboard UI is on the dashboard server; "
+            "on this proxy worker use /__waf/worker/logs (admin) for local SQLite traffic."
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _upstream_headers(request: Request) -> dict[str, str]:
     out: dict[str, str] = {}
     for key, value in request.headers.items():
-        if key.lower() in HOP_BY_HOP:
+        lk = key.lower()
+        if lk in HOP_BY_HOP:
+            continue
+        if lk == "accept-encoding":
             continue
         out[key] = value
     out["host"] = UPSTREAM_HOST_HEADER
+    out["accept-encoding"] = "identity"
     return out
 
 
@@ -180,7 +470,7 @@ def _request_public_origin(request: Request) -> str:
 
 
 def _upstream_origin_variants() -> list[str]:
-    """UPSTREAM_URL 과 같은 서버를 가리키는 localhost / 127.0.0.1 표기 (SPA 번들·리다이렉트에 섞임)."""
+    """UPSTREAM_URL 과 같은 서버를 가리키는 localhost / 127.0.0.1 표기."""
     variants = [UPSTREAM_ORIGIN]
     host = (_parsed.hostname or "").lower()
     scheme = (_parsed.scheme or "http").lower()
@@ -204,7 +494,7 @@ def _rewrite_location_header(value: str, request: Request) -> str:
     v = (value or "").strip()
     for orig in sorted(_upstream_origin_variants(), key=len, reverse=True):
         if v.startswith(orig):
-            return pub + v[len(orig) :]
+            return pub + v[len(orig):]
     return value
 
 
@@ -217,38 +507,26 @@ def _media_type_should_rewrite_body(ct_header: str) -> bool:
     return False
 
 
-# 업스트림 HTML에 삽입: 외부 스크립트만 로드 (CSP 가 inline 을 막는 경우 대비).
-# 본문은 static/waf/js/waf_proxy_interceptor.js
-_WAF_INTERCEPTOR_SNIPPET = (
-    '\n<script id="__waf-interceptor" src="/__waf/static/js/waf_proxy_interceptor.js">'
-    "</script>\n"
-)
-
-
-def _inject_waf_interceptor(text: str) -> str:
-    """WAF 인터셉터를 <head> 직후(없으면 <html> 직후, 그다음 </body> 앞)에 넣는다."""
-    if "__waf-interceptor" in text:
-        return text
-    snip = _WAF_INTERCEPTOR_SNIPPET
-    m = re.search(r"<head[^>]*>", text, flags=re.IGNORECASE)
-    if m:
-        ins = m.end()
-        return text[:ins] + snip + text[ins:]
-    m2 = re.search(r"<html[^>]*>", text, flags=re.IGNORECASE)
-    if m2:
-        ins = m2.end()
-        return text[:ins] + snip + text[ins:]
-    tag = "</body>"
-    idx = text.lower().rfind(tag)
-    if idx == -1:
-        return snip + text
-    return text[:idx] + snip + text[idx:]
+def _inject_waf_interceptor(text: str, content_type: str) -> tuple[str, bool]:
+    """업스트림 HTML에 XHR/fetch 차단 응답용 리다이렉트 스크립트를 삽입."""
+    main = (content_type or "").split(";")[0].strip().lower()
+    if main != "text/html" or "waf_proxy_interceptor.js" in text:
+        return text, False
+    tag = '<script src="/__waf/static/js/waf_proxy_interceptor.js" defer></script>'
+    lower = text.lower()
+    idx = lower.rfind("</body>")
+    if idx >= 0:
+        return text[:idx] + tag + text[idx:], True
+    idx = lower.rfind("</head>")
+    if idx >= 0:
+        return text[:idx] + tag + text[idx:], True
+    return text + tag, True
 
 
 def _rewrite_response_body_for_public_origin(
     content: bytes, content_type: str, request: Request
 ) -> tuple[bytes, bool]:
-    """본문 바이트와, WAF 인터셉터를 넣었는지 여부(CSP 완화용)."""
+    """본문 치환 및(HTML이면) 인터셉터 스크립트 주입. 둘째 값=True면 CSP 제거 등이 필요할 수 있음."""
     if len(content) > PROXY_REWRITE_MAX_BYTES:
         return content, False
     if not _media_type_should_rewrite_body(content_type):
@@ -257,25 +535,24 @@ def _rewrite_response_body_for_public_origin(
         text = content.decode("utf-8")
     except UnicodeDecodeError:
         return content, False
-    main_ct = (content_type or "").split(";")[0].strip().lower()
     pub = _request_public_origin(request)
+    changed = False
     for orig in sorted(_upstream_origin_variants(), key=len, reverse=True):
         if orig in text:
             text = text.replace(orig, pub)
-    injected = False
-    if main_ct == "text/html" and "__waf-interceptor" not in text:
-        before = text
-        text = _inject_waf_interceptor(text)
-        injected = "__waf-interceptor" in text and text != before
+            changed = True
+    text, injected = _inject_waf_interceptor(text, content_type)
+    changed = changed or injected
+    if not changed:
+        return content, False
     return text.encode("utf-8"), injected
 
 
 def _build_proxied_upstream_response(request: Request, upstream: httpx.Response) -> Response:
     ct = upstream.headers.get("content-type", "")
-    content, strip_csp = _rewrite_response_body_for_public_origin(
+    content, interceptor_injected = _rewrite_response_body_for_public_origin(
         upstream.content, ct, request
     )
-    # Starlette Response.headers 는 Mapping 만 허용 — list/tuple 이면 500 (AttributeError)
     out = MutableHeaders()
     for key, value in upstream.headers.multi_items():
         lk = key.lower()
@@ -283,10 +560,7 @@ def _build_proxied_upstream_response(request: Request, upstream: httpx.Response)
             continue
         if lk in ("content-length", "content-encoding", "transfer-encoding"):
             continue
-        if strip_csp and lk in (
-            "content-security-policy",
-            "content-security-policy-report-only",
-        ):
+        if lk == "content-security-policy" and interceptor_injected:
             continue
         if lk == "location":
             value = _rewrite_location_header(value, request)
@@ -298,21 +572,32 @@ def _build_proxied_upstream_response(request: Request, upstream: httpx.Response)
     )
 
 
-async def _forward(request: Request, full_path: str) -> Response:
+async def _forward(request: Request, full_path: str, upstream_base: str | None = None, upstream_host: str | None = None) -> Response:
+    _base = upstream_base or UPSTREAM_BASE
+    _host = upstream_host or UPSTREAM_HOST_HEADER
     path = full_path.lstrip("/")
-    url = f"{UPSTREAM_BASE}/{path}" if path else UPSTREAM_BASE
+    url = f"{_base}/{path}" if path else _base
     if request.url.query:
         url = f"{url}?{request.url.query}"
 
     body = await request.body()
-    headers = _upstream_headers(request)
+    # 동적 upstream으로 헤더 재구성
+    headers_dict: dict[str, str] = {}
+    for key, value in request.headers.items():
+        lk = key.lower()
+        if lk in HOP_BY_HOP or lk == "accept-encoding":
+            continue
+        headers_dict[key] = value
+    headers_dict["host"] = _host
+    headers_dict["accept-encoding"] = "identity"
+    headers = headers_dict
 
     async with httpx.AsyncClient(follow_redirects=False) as client:
         try:
             upstream = await client.request(
                 request.method,
                 url,
-                headers=headers,
+                headers=headers if isinstance(headers, dict) else dict(headers),
                 content=body if body else None,
                 timeout=httpx.Timeout(60.0),
             )
@@ -326,189 +611,11 @@ async def _forward(request: Request, full_path: str) -> Response:
     return _build_proxied_upstream_response(request, upstream)
 
 
-def _module_for_rule(results: list[ModuleScanResult], rule_id: str) -> ModuleScanResult | None:
-    for r in results:
-        if any(x.rule_id == rule_id for x in r.findings):
-            return r
-    return None
-
-
-def _module_title(module_id: str) -> str:
-    for m in MODULES:
-        if m.module_id == module_id:
-            return m.title
-    return "—"
-
-
-def _attack_type_label(rule_id: str) -> str:
-    u = rule_id.upper()
-    # A05:2025 — Injection
-    if u.startswith("A05-SQL"):
-        return "SQL Injection"
-    if u.startswith("A05-CMD"):
-        return "OS Command Injection"
-    if u.startswith("A05-XSS"):
-        return "Cross-Site Scripting (XSS)"
-    if u.startswith("A05-LDAP"):
-        return "LDAP Injection"
-    if u.startswith("A05-XPATH"):
-        return "XPath Injection"
-    if u.startswith("A05-EL"):
-        return "Expression Language Injection"
-    if u.startswith("A05-SSTI"):
-        return "Server-Side Template Injection (SSTI)"
-    if u.startswith("A05-CRLF"):
-        return "CRLF Injection"
-    # A06:2025 — Insecure Design
-    if u.startswith("A06-ROLE"):
-        return "Role/Privilege Escalation"
-    if u.startswith("A06-PRICE"):
-        return "Price / Amount Manipulation"
-    if u.startswith("A06-MASS"):
-        return "Mass Assignment (Protected Field)"
-    if u.startswith("A06-ADMIN"):
-        return "Admin Endpoint Direct Access"
-    if u.startswith("A06-STEP"):
-        return "Workflow Step Skipping"
-    if u.startswith("A06-RATE"):
-        return "Rate Limit Abuse (Brute-force)"
-    # A07:2025 — Authentication Failures
-    if u.startswith("A07-JWT-001"):
-        return "JWT Algorithm Manipulation (alg:none)"
-    if u.startswith("A07-JWT-002"):
-        return "JWT Missing Signature"
-    if u.startswith("A07-JWT-003"):
-        return "JWT Payload Tampering (role:admin)"
-    if u.startswith("A07-CRED-001"):
-        return "Brute Force / 로그인 반복 공격"
-    if u.startswith("A07-CRED-002"):
-        return "Credential Stuffing / 크리덴셜 스터핑"
-    if u.startswith("A07-CRED-003"):
-        return "Weak / Default Password"
-    if u.startswith("A07-SESS"):
-        return "Session ID URL Exposure"
-    if u.startswith("A07-ENUM"):
-        return "Account Enumeration / 계정 열거"
-    # A10:2025 — Mishandling of Exceptional Conditions
-    if u.startswith("A10-UNDEF"):
-        return "Undefined Identifier (예외 미처리)"
-    if u.startswith("A10-PROTO"):
-        return "Prototype Pollution"
-    if u.startswith("A10-BOUND"):
-        return "Boundary Value / Integer Overflow"
-    if u.startswith("A10-NULLB"):
-        return "Null-Byte Injection"
-    if u.startswith("A10-FMT"):
-        return "Format String Probe"
-    if u.startswith("A10-DEEP"):
-        return "Deep Nesting / DoS"
-    if u.startswith("A10-TYPECONF"):
-        return "Type Confusion"
-    if u.startswith("A10-ERRPRB"):
-        return "Error Probe (예외 조건 유발)"
-    if u.startswith("A10-HDRNOM"):
-        return "HTTP Header Anomaly"
-    return "기타 / 규칙 기반 탐지"
-
-
-def _finding_enriched_dict(
-    results: list[ModuleScanResult],
-    f: Finding,
-    *,
-    evidence_max: int = 500,
-) -> dict[str, str]:
-    mod = _module_for_rule(results, f.rule_id)
-    owasp_id = mod.owasp_id if mod else "—"
-    category = _module_title(mod.module_id) if mod else "—"
-    ev = f.evidence
-    if len(ev) > evidence_max:
-        ev = ev[: evidence_max - 1] + "…"
-    return {
-        "owasp_id": owasp_id,
-        "category": category,
-        "attack_type": _attack_type_label(f.rule_id),
-        "rule_id": f.rule_id,
-        "severity": f.severity.value,
-        "location": f.location or "—",
-        "evidence": ev,
-    }
-
-
-def _blocking_payload_dict(
-    results: list[ModuleScanResult],
-    blocking: list[Finding],
-    min_sev: Severity,
-) -> dict[str, Any]:
-    return {
-        "blocked": True,
-        "policy": "min_severity",
-        "min_severity": min_sev.value,
-        "upstream": UPSTREAM_BASE,
-        "findings": [_finding_enriched_dict(results, f) for f in blocking],
-    }
-
-
-def _prefer_waf_block_html(request: Request) -> bool:
-    """브라우저 주소창 직접 탐색(sec-fetch-dest: document)만 HTML 차단 페이지 반환.
-    XHR / fetch API 호출은 JSON 403 반환 → 삽입된 인터셉터 JS 가 /__waf/blocked 로 리다이렉트.
-    """
-    fmt = (request.query_params.get("__waf_block_format") or "").lower()
-    if fmt == "json":
-        return False
-    if fmt == "html":
-        return True
-    dest = (request.headers.get("sec-fetch-dest") or "").lower()
-    return dest == "document"
-
-
-def _waf_blocked_html_response(payload: dict[str, Any]) -> HTMLResponse:
-    rows: list[dict[str, str]] = list(payload.get("findings") or [])
-    if not rows:
-        headline = "위협 패턴이 탐지되어 차단되었습니다"
-        subline = "요청 본문·URL 등에서 차단 기준에 해당하는 입력이 확인되었습니다."
-        alert_message = f"[WAF 차단] {headline}\n{subline}"
-    elif len(rows) == 1:
-        f0 = rows[0]
-        atk = f0.get("attack_type") or "알 수 없는 공격 유형"
-        headline = f"{atk} 취약점이 발견되어 차단되었습니다"
-        subline = (
-            f"OWASP {f0.get('owasp_id', '—')} · {f0.get('category', '—')} · "
-            f"규칙 {f0.get('rule_id', '—')} · 탐지 위치 {f0.get('location', '—')}"
-        )
-        alert_message = f"[WAF 차단] {headline}\n{subline}"
-    else:
-        types: list[str] = []
-        seen_t: set[str] = set()
-        for r in rows:
-            t = r.get("attack_type") or "—"
-            if t not in seen_t:
-                seen_t.add(t)
-                types.append(t)
-        types_str = ", ".join(types[:4])
-        if len(types) > 4:
-            types_str += f" 외 {len(types) - 4}종"
-        headline = "복수 취약점 패턴이 발견되어 차단되었습니다"
-        subline = f"탐지된 유형: {types_str} (총 {len(rows)}건 규칙 매칭)"
-        alert_message = f"[WAF 차단] {headline}\n{subline}"
-    tpl = _jinja_env.get_template("waf_blocked.html")
-    html = tpl.render(
-        rows=rows,
-        boot={"alert_message": alert_message},
-        headline=headline,
-        subline=subline,
-    )
-    return HTMLResponse(
-        content=html,
-        status_code=403,
-        headers={"Cache-Control": "no-store"},
-    )
-
-
 async def _run_waf_gate(
     request: Request,
 ) -> tuple[Response | None, list[ModuleScanResult], list[Finding]]:
     """스캔 후 차단이면 403 응답과 함께 탐지 목록을 반환. 통과면 (None, results, [])."""
-    if not _waf_enabled():
+    if not await _effective_waf_request_gate_enabled():
         return None, [], []
     ctx = await request_to_context(request, body_preview_max=_body_preview_max())
     results = await scan_request(ctx)
@@ -516,136 +623,141 @@ async def _run_waf_gate(
     min_sev = _waf_block_min_severity()
     blocking = waf_blocking_findings(findings, min_sev)
     if not blocking:
-        return None, results, []
-    payload = _blocking_payload_dict(results, blocking, min_sev)
-    if _prefer_waf_block_html(request):
-        blocked: Response = _waf_blocked_html_response(payload)
+        ai_verdict = await judge_request_with_ai(ctx, findings)
+        if (
+            ai_verdict is None
+            or not ai_verdict.should_block
+            or ai_verdict.confidence < ai_block_min_confidence()
+        ):
+            if ai_verdict is not None:
+                if ai_verdict.should_block:
+                    record_ai_final_decision("allow_low_confidence", ai_verdict)
+                else:
+                    record_ai_final_decision("allow", ai_verdict)
+            return None, results, []
+        ai_finding = verdict_to_finding(ai_verdict)
+        record_ai_final_decision("block", ai_verdict)
+        results = [
+            *results,
+            ModuleScanResult("ai", "AI", (ai_finding,)),
+        ]
+        blocking = [ai_finding]
+    payload = blocking_payload_dict(
+        results,
+        blocking,
+        min_sev,
+        upstream_base=UPSTREAM_BASE,
+    )
+    if prefer_waf_block_html(request):
+        blocked: Response = waf_blocked_html_response(payload, jinja_env=_jinja_env)
     else:
         blocked = JSONResponse(status_code=403, content=payload)
     return blocked, results, blocking
 
 
-async def _waf_scan_client_fragment(fragment: str) -> JSONResponse | None:
-    """location.hash 등 브라우저만 아는 문자열을 body_preview 로 올려 A05/A10 과 동일 스캔."""
-    if not _waf_enabled():
-        return None
-    raw = (fragment or "")[: _body_preview_max()]
-    if not raw.strip():
-        return None
-    ctx = RequestContext(
-        method="GET",
-        path="/",
-        query_string="",
-        headers={},
-        body_preview=raw,
-    )
-    results = await scan_request(ctx)
-    findings = all_findings(results)
-    blocking = waf_blocking_findings(findings, _waf_block_min_severity())
-    if not blocking:
-        return None
-    payload = _blocking_payload_dict(results, blocking, _waf_block_min_severity())
-    return JSONResponse(status_code=403, content=payload)
-
-
 @app.get("/__proxy/health")
 async def proxy_health() -> dict[str, Any]:
+    db_hint = (
+        os.environ.get("TRAFFIC_LOG_DB", "").strip()
+        or str(Path(__file__).resolve().parent / "waf_traffic.sqlite3")
+    )
+    curl, ctok = _resolved_central_ingest_pair()
+    peek_configured = bool(curl and ctok)
+
+    merged = dict(_CENTRAL_INGEST_LAST)
+
+    merged_peek = {
+        **merged,
+        "peek_configured": peek_configured,
+        "explicit_central_dashboard_url_was_set": bool(CENTRAL_DASHBOARD_URL_EXPLICIT),
+        "explicit_sensor_token_was_set": bool(SENSOR_TOKEN_EXPLICIT),
+        "auto_fallback_central_dashboard_url_used": peek_configured
+        and bool(curl)
+        and (not CENTRAL_DASHBOARD_URL_EXPLICIT),
+        "auto_admin_sensor_token_used": peek_configured and bool(ctok) and (not SENSOR_TOKEN_EXPLICIT),
+        "resolved_central_dashboard_url_tail": curl[-64:] if curl else "",
+        "explain": (
+            "로컬 데모: CENTRAL 미지정 시 http://127.0.0.1:8080 + waf_auth 의 admin sensor_token 로 자동 ingest. "
+            "원격에는 CENTRAL/SENSOR 명시 또는 WAF_DISABLE_DEFAULT_CENTRAL_INGEST 로 끔. "
+            "같은 머신이어도 프록시·대시보드가 같은 TRAFFIC_LOG_DB 또는 ingest 가 있어야 8080에 보입니다."
+        ),
+        "open_health_url_relative": "/__proxy/health",
+        "central_traffic_dashboard_url": (f"{curl}/__waf/dashboard/traffic" if curl else ""),
+    }
+    if "configured" in merged:
+        merged_peek["configured"] = merged["configured"]
+    else:
+        merged_peek["configured"] = peek_configured
+    if "configured" not in merged and peek_configured:
+        merged_peek.setdefault(
+            "detail",
+            "아직 ingest 시도 없음. 트래픽 한 건 보낸 뒤 ok/http_status 확인.",
+        )
     return {
         "status": "ok",
+        "site_id": SITE_ID,
         "upstream": UPSTREAM_BASE,
         "waf_enabled": _waf_enabled(),
+        "waf_follows_central_site_policy": _follow_central_site_waf_policy(),
+        "waf_site_policy_ttl_sec": _SITE_WAF_POLICY_TTL,
+        "waf_request_gate_cached": await _effective_waf_request_gate_enabled(),
         "waf_block_min_severity": _waf_block_min_severity().value,
         "process_started_at": _PROCESS_STARTED_AT,
+        "local_traffic_db_hint": db_hint,
+        "central_ingest": merged_peek,
+        "ai_second_pass": ai_second_pass_status(),
     }
 
 
-async def api_dashboard_summary(request: Request | None = None) -> dict[str, Any]:
-    up_ok, up_err = await _probe_upstream()
-    out = _dashboard_summary_dict(upstream_ok=up_ok, upstream_error=up_err)
-    out["process_started_at"] = _PROCESS_STARTED_AT
-    out["proxy_rewrite_max_bytes"] = PROXY_REWRITE_MAX_BYTES
-    out["env"] = {
-        "UPSTREAM_URL": UPSTREAM_RAW,
-        "WAF_ENABLED": str(_waf_enabled()).lower(),
-        "WAF_BLOCK_MIN_SEVERITY": _waf_block_min_severity().value,
-        "WAF_BODY_PREVIEW_MAX": _body_preview_max(),
-        "PROXY_REWRITE_MAX_BYTES": PROXY_REWRITE_MAX_BYTES,
-    }
-    if request is not None:
-        out["access"] = _access_snapshot(request)
-        out["proxy_public_origin"] = _request_public_origin(request)
-    return out
-
-
-async def dashboard_page(request: Request) -> HTMLResponse:
-    initial = await api_dashboard_summary(request)
-    tpl = _jinja_env.get_template("dashboard.html")
-    html = tpl.render(
-        upstream=UPSTREAM_BASE,
-        boot=initial,
+@app.get("/__waf/blocked")
+async def waf_blocked_interceptor_landing(request: Request) -> HTMLResponse:
+    """fetch/XHR 403 JSON 후 인터셉터가 이동하는 차단 전용 HTML."""
+    p = request.query_params
+    has_row = bool(
+        (p.get("rule_id") or "").strip()
+        or (p.get("owasp_id") or "").strip()
+        or (p.get("attack_type") or "").strip()
     )
-    return HTMLResponse(
-        html,
-        headers={
-            # 같은 출처에서 업스트림(SPA) SW가 오래된 index를 쓰는 일을 줄임
-            "Cache-Control": "no-store, no-cache, must-revalidate",
-            "Pragma": "no-cache",
-        },
-    )
-
-
-@app.get("/__waf/dashboard")
-async def waf_dashboard_canonical(request: Request) -> HTMLResponse:
-    return await dashboard_page(request)
-
-
-@app.get("/__waf/api/summary")
-async def waf_api_summary_canonical(request: Request) -> dict[str, Any]:
-    return await api_dashboard_summary(request)
-
-
-@app.get("/__waf/api/traffic")
-async def waf_api_traffic() -> dict[str, Any]:
-    events = await traffic_log.snapshot_dicts()
-    return {"status": "ok", "events": events}
-
-
-@app.get("/__waf/api/clients")
-async def waf_api_clients() -> dict[str, Any]:
-    return await traffic_log.clients_snapshot()
-
-
-def _module_implementation_label(module_id: str) -> str:
-    _IMPLEMENTED = {"a05", "a06", "a07", "a10"}
-    return "rules" if module_id in _IMPLEMENTED else "skeleton"
-
-
-@app.get("/__waf/api/modules")
-async def waf_api_modules() -> dict[str, Any]:
-    return {
-        "status": "ok",
-        "modules": [
+    if not has_row:
+        return waf_blocked_html_response(
             {
-                "module_id": m.module_id,
-                "owasp_id": m.owasp_id,
-                "title": m.title,
-                "implementation": _module_implementation_label(m.module_id),
-            }
-            for m in MODULES
-        ],
+                "blocked": True,
+                "policy": "interceptor_redirect",
+                "min_severity": _waf_block_min_severity().value,
+                "upstream": UPSTREAM_BASE,
+                "findings": [],
+            },
+            jinja_env=_jinja_env,
+        )
+    owasp_id = p.get("owasp_id") or "—"
+    category = p.get("category") or "—"
+    atk = p.get("attack_type") or "알 수 없는 공격 유형"
+    rule_id = p.get("rule_id") or "—"
+    severity_raw = (p.get("severity") or "high").strip().lower()
+    if severity_raw not in ("none", "low", "medium", "high", "critical"):
+        severity_raw = "high"
+    location = p.get("location") or "—"
+    evidence = p.get("evidence") or "—"
+    row: dict[str, str] = {
+        "owasp_id": owasp_id,
+        "category": category,
+        "attack_type": atk,
+        "rule_id": rule_id,
+        "severity": severity_raw,
+        "location": location,
+        "evidence": evidence,
+        "rule_explain": rule_explain(rule_id, evidence),
     }
-
-
-@app.get("/__waf/api/stats")
-async def waf_api_stats() -> dict[str, Any]:
-    return await traffic_log.stats_snapshot()
-
-
-_ALLOWED_UI_BLOCK_SEVERITIES = frozenset({"low", "medium", "high", "critical"})
-
-
-class BlockSeverityUpdate(BaseModel):
-    min_severity: str = Field(..., min_length=2, max_length=16)
+    return waf_blocked_html_response(
+        {
+            "blocked": True,
+            "policy": "interceptor_redirect",
+            "min_severity": _waf_block_min_severity().value,
+            "upstream": UPSTREAM_BASE,
+            "findings": [row],
+        },
+        jinja_env=_jinja_env,
+    )
 
 
 class FragmentScanIn(BaseModel):
@@ -656,61 +768,30 @@ class FragmentScanIn(BaseModel):
 
 @app.post("/__waf/api/scan-fragment", response_model=None)
 async def waf_api_scan_fragment(body: FragmentScanIn) -> Any:
-    blocked = await _waf_scan_client_fragment(body.fragment)
-    if blocked is not None:
-        return blocked
-    return {"status": "ok"}
-
-
-@app.put("/__waf/api/settings/block-severity")
-async def waf_api_set_block_severity(body: BlockSeverityUpdate) -> dict[str, Any]:
-    """런타임에 `WAF_BLOCK_MIN_SEVERITY`와 동일 효과 (프로세스 메모리의 os.environ만 갱신)."""
-    key = body.min_severity.strip().lower()
-    if key not in _ALLOWED_UI_BLOCK_SEVERITIES:
-        raise HTTPException(
-            status_code=400,
-            detail="min_severity must be one of: low, medium, high, critical",
-        )
-    os.environ["WAF_BLOCK_MIN_SEVERITY"] = key
-    return {
-        "status": "ok",
-        "waf_block_min_severity": _waf_block_min_severity().value,
-    }
-
-
-# XHR 인터셉터가 리다이렉트하는 차단 페이지 엔드포인트.
-# 쿼리파라미터(owasp_id, rule_id, attack_type, severity, location, evidence, category)로
-# 탐지 정보를 받아 waf_blocked.html 을 렌더링한다.
-@app.get("/__waf/blocked")
-async def waf_blocked_redirect_page(request: Request) -> HTMLResponse:
-    p = request.query_params
-    atk      = p.get("attack_type") or "알 수 없는 공격 유형"
-    owasp_id = p.get("owasp_id")    or "—"
-    category = p.get("category")    or "—"
-    rule_id  = p.get("rule_id")     or "—"
-    severity = p.get("severity")    or "high"
-    location = p.get("location")    or "—"
-    evidence = p.get("evidence")    or "—"
-    rows = [{
-        "owasp_id":    owasp_id,
-        "category":    category,
-        "attack_type": atk,
-        "rule_id":     rule_id,
-        "severity":    severity,
-        "location":    location,
-        "evidence":    evidence,
-    }]
-    headline = f"{atk} 취약점이 발견되어 차단되었습니다"
-    subline  = f"OWASP {owasp_id} · {category} · 규칙 {rule_id} · 탐지 위치 {location}"
-    alert_message = f"[WAF 차단] {headline}\n{subline}"
-    tpl  = _jinja_env.get_template("waf_blocked.html")
-    html = tpl.render(
-        rows=rows,
-        boot={"alert_message": alert_message},
-        headline=headline,
-        subline=subline,
+    raw = body.fragment or ""
+    if not raw.strip():
+        return {"status": "ok"}
+    if not await _effective_waf_request_gate_enabled():
+        return {"status": "ok"}
+    ctx = RequestContext(
+        method="GET",
+        path="/",
+        query_string="",
+        headers={},
+        body_preview=raw[: _body_preview_max()],
     )
-    return HTMLResponse(content=html, status_code=403, headers={"Cache-Control": "no-store"})
+    results = await scan_request(ctx)
+    findings = all_findings(results)
+    blocking = waf_blocking_findings(findings, _waf_block_min_severity())
+    if not blocking:
+        return {"status": "ok"}
+    payload = blocking_payload_dict(
+        results,
+        blocking,
+        _waf_block_min_severity(),
+        upstream_base=UPSTREAM_BASE,
+    )
+    return JSONResponse(status_code=403, content=payload)
 
 
 # `/__waf/{waf_tail:path}` 보다 먼저 등록해야 정적 파일이 404로 가지 않음
@@ -721,84 +802,117 @@ app.mount(
     name="waf_static",
 )
 
+attach_worker_console(app, _jinja_env)
 
-def _waf_unknown_path_response() -> JSONResponse:
-    """`/__waf/*` 중 대시보드·요약 API가 아닌 경로 — 업스트림으로 넘기면 Juice Shop HTML이 먹힘."""
-    return JSONResponse(
-        status_code=404,
-        content={"detail": "Unknown WAF UI path"},
-        headers={"Cache-Control": "no-store"},
-    )
+
+@app.get("/__waf/api/tls-check", include_in_schema=False)
+async def _main_tls_domain_check(domain: str = "") -> Response:
+    """Caddy on-demand TLS 검증 — WAF에 등록된 도메인만 cert 발급 허용."""
+    if not domain:
+        return Response(status_code=400, content="domain parameter required")
+    clean = domain.split(":")[0].strip().lower()
+    if not clean:
+        return Response(status_code=400, content="invalid domain")
+    if _MULTI_SITE_ENABLED and _site_registry:
+        route = _site_registry.lookup_route(clean)
+        if route is None:
+            return Response(status_code=403, content="domain not registered")
+        return Response(status_code=200, content="ok")
+    # site_registry 없음 (싱글사이트 모드) — 일단 허용
+    return Response(status_code=200, content="ok")
 
 
 @app.api_route("/__waf", methods=METHODS)
 @app.api_route("/__waf/", methods=METHODS)
-async def waf_prefix_only_reserved(_request: Request) -> JSONResponse:
+async def waf_reserved_root(_request: Request) -> JSONResponse:
     return _waf_unknown_path_response()
 
 
-# catch-all `/{full_path:path}` 보다 먼저 매칭되게 해 `__waf/scripts.js` 등이 업스트림으로 가지 않도록 함
 @app.api_route("/__waf/{waf_tail:path}", methods=METHODS)
-async def waf_unknown_subpath(waf_tail: str, _request: Request) -> JSONResponse:
+async def waf_reserved_subpath(waf_tail: str, _request: Request) -> JSONResponse:
     return _waf_unknown_path_response()
-
-
-@app.get("/api/dashboard/summary")
-async def api_dashboard_summary_legacy(request: Request) -> dict[str, Any]:
-    return await api_dashboard_summary(request)
-
-
-@app.get("/dashboard")
-async def dashboard_legacy_redirect() -> RedirectResponse:
-    return RedirectResponse(url=f"{WAF_UI_PREFIX}/dashboard", status_code=307)
-
-
-@app.get("/dashboard/")
-async def dashboard_legacy_redirect_slash() -> RedirectResponse:
-    return RedirectResponse(url=f"{WAF_UI_PREFIX}/dashboard", status_code=307)
 
 
 @app.api_route("/", methods=METHODS)
 async def proxy_root(request: Request) -> Response:
+    _host = request.headers.get("host", "")
+    _upstream_base, _upstream_host, _upstream_origin, _route = _resolve_upstream_for_request(_host)
+    # IP 정책 체크
+    if _route and _MULTI_SITE_ENABLED and _site_registry:
+        _client_ip = _client_ip_for_log(request)
+        _ip_action = _site_registry.check_ip_policy(_route.site_id, _client_ip)
+        if _ip_action == "block":
+            await _record_proxy_event(request, status_code=403, blocked=True)
+            return JSONResponse(status_code=403, content={"detail": "IP 차단 정책에 의해 차단되었습니다.", "blocked": True})
+        if _ip_action == "allow":
+            resp = await _forward(request, "", upstream_base=_upstream_base, upstream_host=_upstream_host)
+            await _record_proxy_event(request, status_code=resp.status_code, blocked=False)
+            return resp
+    # 예외 경로 체크
+    if _route and _MULTI_SITE_ENABLED and _site_registry:
+        if _site_registry.is_exception_path(_route.site_id, request.url.path, request.method):
+            resp = await _forward(request, "", upstream_base=_upstream_base, upstream_host=_upstream_host)
+            await _record_proxy_event(request, status_code=resp.status_code, blocked=False)
+            return resp
+    # detect 모드면 WAF 게이트 통과 후 로그만
+    if _route and _route.mode == "disabled":
+        resp = await _forward(request, "", upstream_base=_upstream_base, upstream_host=_upstream_host)
+        await _record_proxy_event(request, status_code=resp.status_code, blocked=False)
+        return resp
     blocked, scan_results, blocking_findings = await _run_waf_gate(request)
-    if blocked is not None:
+    if blocked is not None and (_route is None or _route.mode == "block"):
         rows = tuple(
-            _finding_enriched_dict(scan_results, f, evidence_max=400)
+            finding_enriched_dict(scan_results, f, evidence_max=400)
             for f in blocking_findings
         )
-        await traffic_log.record(
+        await _record_proxy_event(
             request, status_code=403, blocked=True, block_findings=rows
         )
         return blocked
-    resp = await _forward(request, "")
-    await traffic_log.record(request, status_code=resp.status_code, blocked=False)
+    resp = await _forward(request, "", upstream_base=_upstream_base, upstream_host=_upstream_host)
+    await _record_proxy_event(request, status_code=resp.status_code, blocked=False)
     return resp
 
 
 @app.api_route("/{full_path:path}", methods=METHODS)
 async def proxy_path(full_path: str, request: Request) -> Response:
-    # Reserve /__proxy/*
     if full_path == "__proxy" or full_path.startswith("__proxy/"):
         return Response(status_code=404)
-    # catch-all 이 정적 라우트보다 먼저 잡히는 경우 → 업스트림 /dashboard 대신 프록시 UI
-    norm = _normalize_proxy_path_segment(full_path)
-    if request.method == "GET" and _is_waf_dashboard_path(norm):
-        return await dashboard_page(request)
-    if request.method == "GET" and _is_waf_summary_api_path(norm):
-        return await api_dashboard_summary(request)
-    # /__waf/* 는 위의 전용 라우트에서 처리; 여기는 예외 경로만 안전망
     if full_path == "__waf" or full_path.startswith("__waf/"):
         return _waf_unknown_path_response()
+    _host = request.headers.get("host", "")
+    _upstream_base, _upstream_host, _upstream_origin, _route = _resolve_upstream_for_request(_host)
+    # IP 정책 체크
+    if _route and _MULTI_SITE_ENABLED and _site_registry:
+        _client_ip = _client_ip_for_log(request)
+        _ip_action = _site_registry.check_ip_policy(_route.site_id, _client_ip)
+        if _ip_action == "block":
+            await _record_proxy_event(request, status_code=403, blocked=True)
+            return JSONResponse(status_code=403, content={"detail": "IP 차단 정책에 의해 차단되었습니다.", "blocked": True})
+        if _ip_action == "allow":
+            resp = await _forward(request, full_path, upstream_base=_upstream_base, upstream_host=_upstream_host)
+            await _record_proxy_event(request, status_code=resp.status_code, blocked=False)
+            return resp
+    # 예외 경로
+    if _route and _MULTI_SITE_ENABLED and _site_registry:
+        if _site_registry.is_exception_path(_route.site_id, "/" + full_path, request.method):
+            resp = await _forward(request, full_path, upstream_base=_upstream_base, upstream_host=_upstream_host)
+            await _record_proxy_event(request, status_code=resp.status_code, blocked=False)
+            return resp
+    if _route and _route.mode == "disabled":
+        resp = await _forward(request, full_path, upstream_base=_upstream_base, upstream_host=_upstream_host)
+        await _record_proxy_event(request, status_code=resp.status_code, blocked=False)
+        return resp
     blocked, scan_results, blocking_findings = await _run_waf_gate(request)
-    if blocked is not None:
+    if blocked is not None and (_route is None or _route.mode == "block"):
         rows = tuple(
-            _finding_enriched_dict(scan_results, f, evidence_max=400)
+            finding_enriched_dict(scan_results, f, evidence_max=400)
             for f in blocking_findings
         )
-        await traffic_log.record(
+        await _record_proxy_event(
             request, status_code=403, blocked=True, block_findings=rows
         )
         return blocked
-    resp = await _forward(request, full_path)
-    await traffic_log.record(request, status_code=resp.status_code, blocked=False)
+    resp = await _forward(request, full_path, upstream_base=_upstream_base, upstream_host=_upstream_host)
+    await _record_proxy_event(request, status_code=resp.status_code, blocked=False)
     return resp

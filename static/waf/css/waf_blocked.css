@@ -1,51 +1,107 @@
 /* ═══════════════════════════════════════════════════════════════
    WAF 차단 페이지 — OWASP Top 10 : 2025
-   AI Security System
+   AI Security Agent
    ═══════════════════════════════════════════════════════════════ */
 
 /* ── 리셋 / 베이스 ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:          #0b0f1a;
-  --bg-card:     #111827;
-  --bg-card2:    #1a2235;
-  --border:      #1e2d45;
-  --accent:      #ef4444;   /* 차단 레드 */
-  --accent-glow: #ef444433;
-  --text:        #e2e8f0;
-  --text-dim:    #94a3b8;
-  --text-muted:  #64748b;
-  --blue:        #3b82f6;
-  --purple:      #8b5cf6;
-  --code-bg:     #0f172a;
+  --bg: #050814;
+  --bg-card: rgba(15, 23, 42, 0.72);
+  --bg-card2: rgba(30, 41, 59, 0.55);
+  --border: rgba(148, 163, 184, 0.18);
+  --accent: #f87171;
+  --accent-glow: rgba(248, 113, 113, 0.35);
+  --text: #e2e8f0;
+  --text-dim: #94a3b8;
+  --text-muted: #64748b;
+  --blue: #3b82f6;
+  --purple: #a855f7;
+  --code-bg: rgba(15, 23, 42, 0.9);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ring: 0 0 0 2px rgba(59, 130, 246, 0.45);
 
-  /* 심각도 색상 */
   --sev-critical: #ef4444;
-  --sev-high:     #f97316;
-  --sev-medium:   #eab308;
-  --sev-low:      #22c55e;
+  --sev-high: #f97316;
+  --sev-medium: #eab308;
+  --sev-low: #22c55e;
 }
 
 html { font-size: 16px; }
 
 body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.6;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  position: relative;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(ellipse 120% 80% at 10% -20%, rgba(59, 130, 246, 0.18), transparent 50%),
+    radial-gradient(ellipse 100% 60% at 100% 0%, rgba(168, 85, 247, 0.12), transparent 45%),
+    radial-gradient(ellipse 80% 50% at 50% 100%, rgba(239, 68, 68, 0.08), transparent 50%),
+    var(--bg);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, black 20%, transparent 75%);
+  pointer-events: none;
+}
+
+.wb-skip {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  z-index: 100;
+}
+.wb-skip:focus {
+  position: fixed;
+  left: 0.75rem;
+  top: 0.75rem;
+  width: auto;
+  height: auto;
+  padding: 0.5rem 0.85rem;
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  box-shadow: var(--ring);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 /* ── 상단 헤더 ── */
 .wb-topbar {
   display: flex;
   align-items: center;
-  gap: .75rem;
-  padding: .75rem 1.5rem;
-  background: #0d1422;
+  gap: 0.75rem;
+  padding: 0.65rem 1.5rem;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -64,13 +120,25 @@ body {
 }
 
 .wb-status-pill {
-  background: var(--accent);
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
   color: #fff;
-  font-size: .72rem;
+  font-size: 0.7rem;
   font-weight: 700;
-  letter-spacing: .06em;
-  padding: .2rem .65rem;
+  letter-spacing: 0.08em;
+  padding: 0.25rem 0.75rem;
   border-radius: 999px;
+  box-shadow: 0 0 20px var(--accent-glow);
+  animation: wb-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes wb-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 16px var(--accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(248, 113, 113, 0.55);
+  }
 }
 
 /* ── 메인 컨테이너 ── */
@@ -91,10 +159,25 @@ body {
   align-items: flex-start;
   gap: 1.1rem;
   background: var(--bg-card);
-  border: 1px solid var(--accent);
-  border-radius: 12px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 14px;
   padding: 1.4rem 1.6rem;
-  box-shadow: 0 0 28px var(--accent-glow);
+  box-shadow: 0 0 32px var(--accent-glow), 0 12px 40px rgba(0, 0, 0, 0.35);
+  position: relative;
+  overflow: hidden;
+}
+
+.wb-headline-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #ef4444, #f97316, #dc2626);
+  opacity: 0.95;
 }
 
 .wb-headline-icon {
@@ -119,9 +202,18 @@ body {
 /* ── 탐지 항목 카드 ── */
 .wb-finding {
   background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
+}
+
+.wb-finding:hover {
+  border-color: rgba(148, 163, 184, 0.28);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.32);
 }
 
 /* 심각도별 왼쪽 강조선 */
@@ -142,14 +234,15 @@ body {
 
 /* OWASP ID 배지 */
 .wb-owasp-badge {
-  background: var(--purple);
+  background: linear-gradient(135deg, #6366f1, #a855f7);
   color: #fff;
-  font-size: .72rem;
+  font-size: 0.7rem;
   font-weight: 700;
-  letter-spacing: .04em;
-  padding: .18rem .6rem;
-  border-radius: 5px;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
   white-space: nowrap;
+  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.35);
 }
 
 /* 카테고리 레이블 */
@@ -209,6 +302,12 @@ body {
   word-break: break-word;
 }
 
+.wb-rule-explain {
+  color: #e2e8f0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
 /* code 태그 */
 .wb-code {
   display: inline-block;
@@ -229,14 +328,25 @@ body {
   word-break: break-all;
 }
 
+.wb-evidence-block {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 22rem;
+  overflow: auto;
+}
+
 /* ── OWASP 카테고리 설명 박스 (JS로 채움) ── */
 .wb-owasp-info {
   background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-left: 4px solid var(--blue);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 1rem 1.25rem;
-  font-size: .86rem;
+  font-size: 0.86rem;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
 }
 
 .wb-owasp-info-title {
@@ -268,6 +378,20 @@ body {
   font-family: monospace;
 }
 
+.wb-muted { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.35rem; }
+.wb-inline-link { color: var(--blue); font-weight: 600; text-decoration: underline; }
+.wb-log-links {
+  margin: 1rem 0 1.35rem;
+  padding: 1rem 1.15rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card2);
+  max-width: 52rem;
+}
+.wb-log-lead { margin: 0 0 0.55rem 0; color: var(--text); font-size: 0.95rem; }
+.wb-log-ul { margin: 0.35rem 0 0 1.1rem; color: var(--text-dim); font-size: 0.88rem; }
+.wb-log-ul li { margin: 0.35rem 0; }
+
 /* ── 액션 버튼 ── */
 .wb-actions {
   display: flex;
@@ -278,19 +402,48 @@ body {
 .wb-btn {
   display: inline-flex;
   align-items: center;
-  gap: .3rem;
-  padding: .6rem 1.2rem;
-  border-radius: 7px;
-  font-size: .85rem;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.62rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.84rem;
   font-weight: 600;
   text-decoration: none;
-  transition: opacity .15s;
+  transition: transform 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out),
+    border-color 0.15s var(--ease-out), background 0.15s var(--ease-out);
   cursor: pointer;
 }
-.wb-btn:hover { opacity: .82; }
+.wb-btn:hover {
+  transform: translateY(-1px);
+}
+.wb-btn:active {
+  transform: translateY(0);
+}
 
-.wb-btn-back { background: #1e293b; color: var(--text); border: 1px solid var(--border); }
-.wb-btn-home { background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb44; }
+.wb-btn-back {
+  background: rgba(30, 41, 59, 0.9);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.wb-btn-back:hover {
+  border-color: rgba(148, 163, 184, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.wb-btn-home {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.35), rgba(168, 85, 247, 0.28));
+  color: #e0e7ff;
+  border: 1px solid rgba(99, 102, 241, 0.45);
+}
+.wb-btn-home:hover {
+  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.35);
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
 
 /* ── 푸터 ── */
 .wb-footer {
@@ -304,8 +457,28 @@ body {
 
 /* ── 반응형 ── */
 @media (max-width: 600px) {
-  .wb-headline-card { flex-direction: column; gap: .6rem; }
-  .wb-headline-icon { font-size: 1.8rem; }
-  .wb-actions { flex-direction: column; }
-  .wb-btn { width: 100%; justify-content: center; }
+  .wb-headline-card {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .wb-headline-icon {
+    font-size: 1.8rem;
+  }
+  .wb-actions {
+    flex-direction: column;
+  }
+  .wb-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-status-pill {
+    animation: none;
+  }
+  .wb-btn:hover,
+  .wb-finding:hover {
+    transform: none;
+  }
 }

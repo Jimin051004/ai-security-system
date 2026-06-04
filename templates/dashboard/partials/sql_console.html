@@ -1,0 +1,37 @@
+          <div class="card card-wide sql-console-card">
+            <h2>연결된 데이터베이스</h2>
+            <p class="scroll-hint">읽기 전용입니다. <strong>SELECT</strong>, <strong>WITH</strong>, <strong>EXPLAIN</strong>, <code class="mono-stat">=</code> 없는 <strong>PRAGMA</strong>만 실행됩니다. DML/DDL은 <a href="/__waf/dashboard/settings">저장소·DB 설정</a>의 초기화·경로 변경을 사용하세요.</p>
+            <dl class="sql-db-meta">
+              <dt>표시 이름</dt>
+              <dd class="mono-stat" id="sql-db-name">…</dd>
+              <dt>경로(해석)</dt>
+              <dd class="mono-stat" id="sql-db-path">…</dd>
+            </dl>
+          </div>
+          <div class="card card-wide sql-console-layout">
+            <div class="sql-console-sidebar">
+              <h3 class="sql-panel-title">테이블·뷰</h3>
+              <p class="sql-panel-hint">클릭 시 샘플 SELECT가 입력됩니다.</p>
+              <ul class="sql-table-list" id="sql-table-list" aria-label="테이블 목록"></ul>
+              <div class="sql-columns-panel" id="sql-columns-panel" hidden>
+                <h4 class="sql-columns-title" id="sql-columns-title">컬럼</h4>
+                <ul class="sql-column-list" id="sql-column-list"></ul>
+              </div>
+            </div>
+            <div class="sql-console-main">
+              <h3 class="sql-panel-title">SQL 입력</h3>
+              <label class="sql-editor-label" for="sql-editor">쿼리</label>
+              <textarea id="sql-editor" class="sql-editor" rows="8" spellcheck="false" wrap="off" placeholder="예: SELECT * FROM traffic_events ORDER BY id DESC LIMIT 50"></textarea>
+              <div class="sql-editor-actions">
+                <button type="button" class="btn-ghost btn-sql-run" id="btn-sql-run">실행</button>
+                <button type="button" class="btn-ghost" id="btn-sql-clear">입력 지우기</button>
+                <span class="sql-shortcut-hint">⌘/Ctrl + Enter 로 실행</span>
+                <span class="sql-run-msg" id="sql-run-msg" role="status" aria-live="polite"></span>
+              </div>
+              <h3 class="sql-panel-title sql-results-title">결과</h3>
+              <div class="sql-results-wrap" id="sql-results-wrap">
+                <p class="sql-results-empty" id="sql-results-empty">실행하면 여기에 결과 테이블이 표시됩니다.</p>
+                <div class="traffic-feed sql-results-table-wrap" id="sql-results-table-wrap" hidden></div>
+              </div>
+            </div>
+          </div>

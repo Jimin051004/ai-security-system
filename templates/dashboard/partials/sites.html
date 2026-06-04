@@ -1,0 +1,459 @@
+<!-- 사이트 관리 파셜 -->
+<section id="sites-section" class="panel-section">
+  <div class="section-header">
+    <h2>사이트 관리</h2>
+    <p class="section-desc">보호할 도메인과 origin 서버를 등록하고 WAF 정책을 설정합니다.</p>
+  </div>
+
+  {% if is_admin or true %}
+  <!-- 사이트 추가 폼 -->
+  <div class="card mb-4" id="add-site-card">
+    <div class="card-header-row">
+      <h3>+ 새 사이트 등록</h3>
+      <button class="btn-sm btn-outline" id="toggle-add-site-form">펼치기 / 접기</button>
+    </div>
+    <form id="add-site-form" class="add-form" style="display:none" onsubmit="submitAddSite(event)">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>표시 이름 <span class="muted">(선택)</span></label>
+          <input type="text" id="sf-display-name" placeholder="My Shop" maxlength="128" />
+        </div>
+        <div class="form-group">
+          <label>보호 도메인 <span class="required">*</span></label>
+          <input type="text" id="sf-domain" placeholder="shop.example.com" required maxlength="256" />
+          <span class="form-hint">Host 헤더와 일치시킬 도메인 (포트 없이 입력)</span>
+        </div>
+        <div class="form-group">
+          <label>Origin URL <span class="required">*</span></label>
+          <input type="text" id="sf-origin" placeholder="http://127.0.0.1:3001" required maxlength="512" />
+          <span class="form-hint">WAF가 요청을 전달할 실제 서버 주소</span>
+        </div>
+        <div class="form-group">
+          <label>WAF 모드</label>
+          <select id="sf-mode">
+            <option value="block">🔴 차단 (Block)</option>
+            <option value="detect">🟡 탐지만 (Detect)</option>
+            <option value="disabled">⚪ 비활성 (Disabled)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>최소 차단 심각도</label>
+          <select id="sf-severity">
+            <option value="critical">CRITICAL</option>
+            <option value="high" selected>HIGH (권장)</option>
+            <option value="medium">MEDIUM</option>
+            <option value="low">LOW</option>
+          </select>
+        </div>
+      </div>
+      <div id="add-site-error" class="alert alert-error" style="display:none"></div>
+      <div class="form-actions">
+        <button type="submit" class="btn-gradient">사이트 등록</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  <!-- 사이트 목록 -->
+  <div id="sites-list-container">
+    <div class="loading-row" id="sites-loading">사이트 목록 불러오는 중...</div>
+    <div id="sites-list"></div>
+  </div>
+
+  <!-- 사이트 상세 모달 -->
+  <div id="site-modal" class="modal" style="display:none" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" onclick="closeSiteModal()"></div>
+    <div class="modal-content wide">
+      <div class="modal-header">
+        <h3 id="modal-site-title">사이트 설정</h3>
+        <button class="modal-close" onclick="closeSiteModal()">✕</button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+</section>
+
+<style>
+.add-form .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.form-group { display: flex; flex-direction: column; gap: .35rem; }
+.form-group label { font-size: .82rem; color: var(--color-muted); font-weight: 600; }
+.form-group input, .form-group select, .form-group textarea {
+  background: var(--color-surface2, rgba(255,255,255,.06));
+  border: 1px solid var(--color-border, rgba(255,255,255,.12));
+  border-radius: 8px; padding: .5rem .75rem; color: var(--color-text);
+  font-size: .88rem; outline: none;
+}
+.form-group input:focus, .form-group select:focus { border-color: var(--color-accent, #6366f1); }
+.form-hint { font-size: .75rem; color: var(--color-muted); }
+.required { color: #f87171; }
+.form-actions { display: flex; gap: .75rem; margin-top: .75rem; }
+.card { background: var(--color-surface, rgba(255,255,255,.04)); border: 1px solid var(--color-border, rgba(255,255,255,.1)); border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+.card-header-row { display: flex; align-items: center; justify-content: space-between; }
+.card-header-row h3 { font-size: 1rem; font-weight: 700; }
+.site-card { background: var(--color-surface, rgba(255,255,255,.04)); border: 1px solid var(--color-border, rgba(255,255,255,.1)); border-radius: 12px; padding: 1.1rem 1.4rem; margin-bottom: .85rem; transition: border-color .15s; }
+.site-card:hover { border-color: var(--color-accent, #6366f1); }
+.site-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.site-name { font-size: 1.05rem; font-weight: 700; }
+.site-domain { font-family: var(--font-mono, monospace); font-size: .82rem; color: var(--color-accent, #6366f1); }
+.site-origin { font-family: var(--font-mono, monospace); font-size: .78rem; color: var(--color-muted); }
+.site-badges { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .4rem; }
+.badge { padding: .18rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700; }
+.badge-block { background: rgba(239,68,68,.15); color: #fca5a5; border: 1px solid rgba(239,68,68,.3); }
+.badge-detect { background: rgba(250,204,21,.12); color: #fde047; border: 1px solid rgba(250,204,21,.25); }
+.badge-disabled { background: rgba(148,163,184,.1); color: #94a3b8; border: 1px solid rgba(148,163,184,.2); }
+.badge-active { background: rgba(52,211,153,.1); color: #34d399; border: 1px solid rgba(52,211,153,.2); }
+.site-stats { display: flex; gap: 1.2rem; margin-top: .6rem; flex-wrap: wrap; }
+.stat-item { font-size: .78rem; color: var(--color-muted); }
+.stat-item strong { color: var(--color-text); }
+.site-actions { display: flex; gap: .5rem; flex-shrink: 0; }
+.btn-sm { padding: .35rem .75rem; border-radius: 7px; font-size: .78rem; cursor: pointer; border: none; font-weight: 600; font-family: inherit; }
+.btn-outline { background: transparent; border: 1px solid var(--color-border, rgba(255,255,255,.15)); color: var(--color-muted); }
+.btn-outline:hover { border-color: var(--color-accent, #6366f1); color: var(--color-accent, #6366f1); }
+.btn-danger { background: rgba(239,68,68,.12); color: #fca5a5; border: 1px solid rgba(239,68,68,.25); }
+.btn-danger:hover { background: rgba(239,68,68,.22); }
+.btn-gradient { background: linear-gradient(135deg,#3b82f6,#6366f1 50%,#a855f7); color: #fff; border: none; border-radius: 8px; padding: .5rem 1.2rem; font-size: .85rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+.btn-gradient:hover { filter: brightness(1.1); }
+.mb-4 { margin-bottom: 1.25rem; }
+.muted { color: var(--color-muted); }
+.alert { padding: .65rem 1rem; border-radius: 8px; font-size: .82rem; }
+.alert-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.25); color: #fca5a5; }
+.alert-success { background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.25); color: #34d399; }
+.loading-row { color: var(--color-muted); font-size: .88rem; padding: 1.5rem 0; }
+.dns-guide { background: rgba(99,102,241,.06); border: 1px solid rgba(99,102,241,.2); border-radius: 10px; padding: 1rem 1.25rem; margin-top: 1rem; font-size: .82rem; }
+.dns-guide code { font-family: var(--font-mono, monospace); background: rgba(0,0,0,.25); padding: .1rem .35rem; border-radius: 4px; }
+.modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+.modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.7); }
+.modal-content { position: relative; background: var(--color-surface, #0d1120); border: 1px solid var(--color-border, rgba(255,255,255,.12)); border-radius: 14px; padding: 1.5rem; max-height: 90vh; overflow-y: auto; width: 100%; max-width: 680px; }
+.modal-content.wide { max-width: 780px; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
+.modal-header h3 { font-size: 1.1rem; font-weight: 700; }
+.modal-close { background: none; border: none; color: var(--color-muted); cursor: pointer; font-size: 1.1rem; padding: .25rem .5rem; border-radius: 6px; }
+.modal-close:hover { background: rgba(255,255,255,.08); }
+.modal-section { margin-bottom: 1.5rem; }
+.modal-section h4 { font-size: .9rem; font-weight: 700; margin-bottom: .75rem; padding-bottom: .4rem; border-bottom: 1px solid var(--color-border, rgba(255,255,255,.08)); }
+.policy-row { display: flex; align-items: center; gap: .75rem; margin-bottom: .6rem; flex-wrap: wrap; }
+.policy-label { font-size: .82rem; color: var(--color-muted); min-width: 120px; }
+.exc-row, .ip-row { display: flex; align-items: center; justify-content: space-between; padding: .45rem .75rem; background: rgba(0,0,0,.2); border-radius: 6px; margin-bottom: .4rem; font-size: .8rem; }
+.exc-pattern { font-family: var(--font-mono, monospace); color: var(--color-text); }
+.exc-meta { color: var(--color-muted); font-size: .74rem; }
+</style>
+
+<script>
+(function(){
+  // ── 데이터 로드 ──────────────────────────────────────────────
+  async function loadSites() {
+    document.getElementById('sites-loading').style.display = '';
+    try {
+      const res = await fetch('/__waf/api/sites');
+      const data = await res.json();
+      renderSitesList(data.sites || []);
+    } catch(e) {
+      document.getElementById('sites-loading').textContent = '불러오기 실패: ' + e.message;
+      return;
+    }
+    document.getElementById('sites-loading').style.display = 'none';
+  }
+
+  function renderSitesList(sites) {
+    const container = document.getElementById('sites-list');
+    if (!sites.length) {
+      container.innerHTML = '<p class="muted" style="padding:1rem 0">등록된 사이트가 없습니다. 위에서 새 사이트를 등록하세요.</p>';
+      return;
+    }
+    container.innerHTML = sites.map(s => {
+      const modeBadge = s.mode === 'block'
+        ? '<span class="badge badge-block">🔴 차단</span>'
+        : s.mode === 'detect'
+        ? '<span class="badge badge-detect">🟡 탐지</span>'
+        : '<span class="badge badge-disabled">⚪ 비활성</span>';
+      const statusBadge = s.status === 'active'
+        ? '<span class="badge badge-active">● 활성</span>'
+        : '<span class="badge badge-disabled">● 비활성</span>';
+      const stats = s.stats_24h || {};
+      const total = stats.total_requests ?? '—';
+      const blocked = stats.blocked ?? '—';
+      return `
+      <div class="site-card">
+        <div class="site-card-top">
+          <div>
+            <div class="site-name">${esc(s.display_name || s.domain || s.site_id)}</div>
+            <div class="site-domain">${esc(s.domain || '—')}</div>
+            <div class="site-origin">→ ${esc(s.origin_url || '—')}</div>
+            <div class="site-badges">${modeBadge} ${statusBadge} <span class="badge" style="background:rgba(99,102,241,.1);color:#a5b4fc;border:1px solid rgba(99,102,241,.2)">심각도: ${esc(s.min_severity || 'high').toUpperCase()}</span></div>
+          </div>
+          <div class="site-actions">
+            <button class="btn-sm btn-outline" onclick="openSiteModal('${esc(s.site_id)}')">설정</button>
+            <button class="btn-sm btn-danger" onclick="confirmDeleteSite('${esc(s.site_id)}', '${esc(s.display_name || s.domain)}')">삭제</button>
+          </div>
+        </div>
+        <div class="site-stats">
+          <div class="stat-item">24h 요청: <strong>${total}</strong></div>
+          <div class="stat-item">차단: <strong>${blocked}</strong></div>
+          <div class="stat-item">사이트 ID: <code>${esc(s.site_id)}</code></div>
+        </div>
+        <div class="dns-guide">
+          <strong>DNS 연결 안내</strong><br/>
+          <code>${esc(s.domain || 'your-domain.com')}</code> 의 A 레코드 또는 CNAME을
+          WAF 서버 IP/도메인으로 변경하세요.<br/>
+          예) <code>${esc(s.domain || 'your-domain.com')}  CNAME  waf.your-infra.net</code><br/>
+          <small class="muted">로컬 테스트: <code>/etc/hosts</code> 에 <code>127.0.0.1 ${esc(s.domain || 'your-domain.com')}</code> 추가</small>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── 사이트 추가 폼 ────────────────────────────────────────────
+  document.getElementById('toggle-add-site-form').addEventListener('click', function() {
+    const f = document.getElementById('add-site-form');
+    f.style.display = f.style.display === 'none' ? '' : 'none';
+  });
+
+  window.submitAddSite = async function(e) {
+    e.preventDefault();
+    const errDiv = document.getElementById('add-site-error');
+    errDiv.style.display = 'none';
+    const body = {
+      display_name: document.getElementById('sf-display-name').value.trim(),
+      domain: document.getElementById('sf-domain').value.trim(),
+      origin_url: document.getElementById('sf-origin').value.trim(),
+      mode: document.getElementById('sf-mode').value,
+      min_severity: document.getElementById('sf-severity').value,
+    };
+    try {
+      const res = await fetch('/__waf/api/sites', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errDiv.textContent = data.detail || '등록 실패';
+        errDiv.style.display = '';
+        return;
+      }
+      document.getElementById('add-site-form').reset();
+      document.getElementById('add-site-form').style.display = 'none';
+      await loadSites();
+    } catch(ex) {
+      errDiv.textContent = ex.message;
+      errDiv.style.display = '';
+    }
+  };
+
+  // ── 삭제 ─────────────────────────────────────────────────────
+  window.confirmDeleteSite = async function(siteId, name) {
+    if (!confirm(`'${name}' 사이트를 삭제하시겠습니까?\n관련 정책, 예외 경로, IP 정책이 모두 삭제됩니다.`)) return;
+    try {
+      const res = await fetch(`/__waf/api/sites/${encodeURIComponent(siteId)}`, {method: 'DELETE'});
+      if (!res.ok) {
+        const d = await res.json();
+        alert('삭제 실패: ' + (d.detail || res.status));
+        return;
+      }
+      await loadSites();
+    } catch(ex) {
+      alert('오류: ' + ex.message);
+    }
+  };
+
+  // ── 상세 모달 ────────────────────────────────────────────────
+  window.openSiteModal = async function(siteId) {
+    const modal = document.getElementById('site-modal');
+    const body = document.getElementById('modal-body');
+    document.getElementById('modal-site-title').textContent = '사이트 설정';
+    body.innerHTML = '<p class="muted">불러오는 중...</p>';
+    modal.style.display = 'flex';
+    try {
+      const res = await fetch(`/__waf/api/sites/${encodeURIComponent(siteId)}`);
+      const s = await res.json();
+      if (!res.ok) { body.innerHTML = `<p style="color:#fca5a5">${esc(s.detail||'오류')}</p>`; return; }
+      document.getElementById('modal-site-title').textContent = s.display_name || s.domain || siteId;
+      renderModalBody(s);
+    } catch(ex) {
+      body.innerHTML = `<p style="color:#fca5a5">오류: ${ex.message}</p>`;
+    }
+  };
+
+  window.closeSiteModal = function() {
+    document.getElementById('site-modal').style.display = 'none';
+  };
+
+  function renderModalBody(s) {
+    const body = document.getElementById('modal-body');
+    const excs = (s.exceptions || []).map(e =>
+      `<div class="exc-row">
+        <div><span class="exc-pattern">${esc(e.path_pattern)}</span>
+          <span class="exc-meta"> ${e.method||'*'} ${e.rule_id ? '룰:'+esc(e.rule_id) : '전체'} ${e.reason?'— '+esc(e.reason):''}</span>
+        </div>
+        <button class="btn-sm btn-danger" onclick="deleteException(${e.id},'${esc(s.site_id)}')">삭제</button>
+      </div>`
+    ).join('') || '<p class="muted" style="font-size:.8rem">예외 없음</p>';
+    const ips = (s.ip_policies || []).map(p =>
+      `<div class="ip-row">
+        <div><code>${esc(p.ip_cidr)}</code> — <strong style="color:${p.action==='block'?'#fca5a5':'#34d399'}">${p.action==='block'?'차단':'허용'}</strong> ${p.reason?'('+esc(p.reason)+')':''}</div>
+        <button class="btn-sm btn-danger" onclick="deleteIpPolicy(${p.id},'${esc(s.site_id)}')">삭제</button>
+      </div>`
+    ).join('') || '<p class="muted" style="font-size:.8rem">IP 정책 없음</p>';
+
+    body.innerHTML = `
+    <!-- 정책 설정 -->
+    <div class="modal-section">
+      <h4>WAF 정책</h4>
+      <div class="policy-row">
+        <span class="policy-label">운영 모드</span>
+        <select id="mp-mode" onchange="updateSitePolicy('${esc(s.site_id)}')">
+          <option value="block" ${s.mode==='block'?'selected':''}>🔴 차단 (Block)</option>
+          <option value="detect" ${s.mode==='detect'?'selected':''}>🟡 탐지만 (Detect)</option>
+          <option value="disabled" ${s.mode==='disabled'?'selected':''}>⚪ 비활성</option>
+        </select>
+      </div>
+      <div class="policy-row">
+        <span class="policy-label">최소 차단 심각도</span>
+        <select id="mp-severity" onchange="updateSitePolicy('${esc(s.site_id)}')">
+          <option value="critical" ${s.min_severity==='critical'?'selected':''}>CRITICAL</option>
+          <option value="high" ${s.min_severity==='high'?'selected':''}>HIGH</option>
+          <option value="medium" ${s.min_severity==='medium'?'selected':''}>MEDIUM</option>
+          <option value="low" ${s.min_severity==='low'?'selected':''}>LOW</option>
+        </select>
+      </div>
+      <div class="policy-row">
+        <span class="policy-label">Origin URL</span>
+        <input type="text" id="mp-origin" value="${esc(s.origin_url||'')}" style="flex:1;min-width:200px" placeholder="http://..." />
+        <button class="btn-sm btn-outline" onclick="saveOrigin('${esc(s.site_id)}')">저장</button>
+      </div>
+      <div class="policy-row">
+        <span class="policy-label">AI Second Pass</span>
+        <label style="display:flex;align-items:center;gap:.5rem;font-size:.85rem;cursor:pointer">
+          <input type="checkbox" id="mp-ai" ${s.ai_enabled?'checked':''} onchange="updateSitePolicy('${esc(s.site_id)}')" />
+          AI 2차 판단 활성화
+        </label>
+      </div>
+    </div>
+
+    <!-- 예외 경로 -->
+    <div class="modal-section">
+      <h4>예외 경로 (WAF 검사 제외)</h4>
+      <div id="exc-list-${esc(s.site_id)}">${excs}</div>
+      <div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">
+        <input type="text" id="exc-path-${esc(s.site_id)}" placeholder="/health 또는 /static/*" style="flex:1;min-width:160px" />
+        <input type="text" id="exc-reason-${esc(s.site_id)}" placeholder="이유 (선택)" style="flex:1;min-width:120px" />
+        <button class="btn-sm btn-outline" onclick="addException('${esc(s.site_id)}')">추가</button>
+      </div>
+    </div>
+
+    <!-- IP 정책 -->
+    <div class="modal-section">
+      <h4>IP 허용 / 차단 정책</h4>
+      <div id="ip-list-${esc(s.site_id)}">${ips}</div>
+      <div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">
+        <input type="text" id="ip-cidr-${esc(s.site_id)}" placeholder="192.168.1.0/24 또는 1.2.3.4" style="flex:1;min-width:160px" />
+        <select id="ip-action-${esc(s.site_id)}" style="min-width:90px">
+          <option value="block">차단</option>
+          <option value="allow">허용</option>
+        </select>
+        <input type="text" id="ip-reason-${esc(s.site_id)}" placeholder="이유 (선택)" style="flex:1;min-width:100px" />
+        <button class="btn-sm btn-outline" onclick="addIpPolicy('${esc(s.site_id)}')">추가</button>
+      </div>
+    </div>
+
+    <!-- TLS 안내 -->
+    <div class="modal-section">
+      <h4>TLS / HTTPS 설정 안내</h4>
+      <div class="dns-guide">
+        <strong>Caddy (권장 — 무료 자동 HTTPS)</strong><br/>
+        아래 내용을 <code>Caddyfile</code> 에 추가하세요:
+        <pre style="margin:.5rem 0;padding:.5rem;background:rgba(0,0,0,.3);border-radius:6px;font-size:.78rem;overflow-x:auto">${esc(s.domain || 'your-domain.com')} {
+    reverse_proxy localhost:8000
+}</pre>
+        <code>caddy run</code> 실행 시 Let's Encrypt 인증서가 자동 발급됩니다.<br/>
+        <small class="muted">로컬 테스트 시 caddy는 self-signed 인증서를 사용합니다.</small>
+      </div>
+    </div>`;
+  }
+
+  // ── 정책 업데이트 ────────────────────────────────────────────
+  window.updateSitePolicy = async function(siteId) {
+    const mode = document.getElementById('mp-mode')?.value;
+    const severity = document.getElementById('mp-severity')?.value;
+    const ai = document.getElementById('mp-ai')?.checked;
+    await fetch(`/__waf/api/sites/${encodeURIComponent(siteId)}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode, min_severity: severity, ai_enabled: ai}),
+    });
+    await loadSites();
+  };
+
+  window.saveOrigin = async function(siteId) {
+    const origin = document.getElementById('mp-origin')?.value.trim();
+    if (!origin) return;
+    const res = await fetch(`/__waf/api/sites/${encodeURIComponent(siteId)}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({origin_url: origin}),
+    });
+    if (!res.ok) {
+      const d = await res.json();
+      alert('저장 실패: ' + (d.detail || res.status));
+    } else {
+      await loadSites();
+    }
+  };
+
+  // ── 예외 경로 ────────────────────────────────────────────────
+  window.addException = async function(siteId) {
+    const path = document.getElementById(`exc-path-${siteId}`)?.value.trim();
+    const reason = document.getElementById(`exc-reason-${siteId}`)?.value.trim();
+    if (!path) return;
+    const res = await fetch(`/__waf/api/sites/${encodeURIComponent(siteId)}/exceptions`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path_pattern: path, reason}),
+    });
+    if (res.ok) {
+      openSiteModal(siteId);
+    } else {
+      const d = await res.json();
+      alert('추가 실패: ' + (d.detail || res.status));
+    }
+  };
+
+  window.deleteException = async function(excId, siteId) {
+    if (!confirm('예외 경로를 삭제하시겠습니까?')) return;
+    await fetch(`/__waf/api/sites/${encodeURIComponent(siteId)}/exceptions/${excId}`, {method:'DELETE'});
+    openSiteModal(siteId);
+  };
+
+  // ── IP 정책 ────────────────────────────────────────────────
+  window.addIpPolicy = async function(siteId) {
+    const cidr = document.getElementById(`ip-cidr-${siteId}`)?.value.trim();
+    const action = document.getElementById(`ip-action-${siteId}`)?.value;
+    const reason = document.getElementById(`ip-reason-${siteId}`)?.value.trim();
+    if (!cidr) return;
+    const res = await fetch(`/__waf/api/sites/${encodeURIComponent(siteId)}/ip-policies`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ip_cidr: cidr, action, reason}),
+    });
+    if (res.ok) {
+      openSiteModal(siteId);
+    } else {
+      const d = await res.json();
+      alert('추가 실패: ' + (d.detail || res.status));
+    }
+  };
+
+  window.deleteIpPolicy = async function(policyId, siteId) {
+    if (!confirm('IP 정책을 삭제하시겠습니까?')) return;
+    await fetch(`/__waf/api/sites/${encodeURIComponent(siteId)}/ip-policies/${policyId}`, {method:'DELETE'});
+    openSiteModal(siteId);
+  };
+
+  // 초기 로드
+  loadSites();
+})();
+</script>

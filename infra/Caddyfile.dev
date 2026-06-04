@@ -1,0 +1,37 @@
+# Caddyfile.dev — 로컬 개발용 (자체서명 인증서, Let's Encrypt 없음)
+# ============================================================
+# 사용법:
+#   CADDY_CONFIG=infra/Caddyfile.dev docker compose -f docker-compose.waf.yml up -d
+#
+# - Caddy 내장 CA가 자체서명 cert를 발급 (신뢰하려면 caddy trust 실행)
+# - /etc/hosts 에 테스트 도메인 -> 127.0.0.1 추가 필요
+#   예: 127.0.0.1  shop.local admin.local
+# ============================================================
+
+{
+    local_certs
+    auto_https off
+    debug
+}
+
+# HTTP -> HTTPS
+:80 {
+    redir https://{host}{uri} permanent
+}
+
+# HTTPS (내부 자체서명 인증서)
+:443 {
+    tls internal
+
+    reverse_proxy waf:8000 {
+        header_up Host              {host}
+        header_up X-Real-IP         {remote_host}
+        header_up X-Forwarded-For   {remote_host}
+        header_up X-Forwarded-Proto https
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

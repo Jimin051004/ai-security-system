@@ -1,0 +1,143 @@
+          {% if is_admin %}
+          <div class="card card-wide">
+            <h2>관리자 · 사이트 연결</h2>
+            <p class="scroll-hint">팀원은 <strong>일반 회원 계정</strong>으로 「사이트 연결」에 들어가 <strong>연결 패키지(ZIP)</strong> 한 번 받으면 됩니다. 브라우저가 원격 PC에서 워커 프로그램을 대신 실행해 주지는 않으므로, ZIP을 푼 뒤 팀 안내 방법으로 워커를 한 번 띄워야 패킷이 이 중앙으로 옵니다.</p>
+            <dl class="settings-dl">
+              <dt>중앙 대시보드 URL</dt>
+              <dd><code class="mono-stat">{{ central_dashboard_url }}</code>
+                <button type="button" class="btn-ghost js-connect-copy" data-copy="{{ central_dashboard_url }}">복사</button>
+              </dd>
+            </dl>
+            <p class="feed-foot muted small" id="connect-copy-msg-admin" role="status"></p>
+          </div>
+          {% else %}
+          <div class="card card-wide connect-guardian-hero">
+            <div class="connect-hero-copy">
+              <p class="connect-kicker">INSTALLING GUARDIAN AI</p>
+              <h2>웹사이트 앞단에<br />AI WAF를 설치하세요</h2>
+              <p>
+                보호할 웹사이트 주소를 넣고 운영체제별 설치 버튼만 누르면 됩니다.
+                설치 파일에 원본 주소·SITE_ID·토큰이 자동 포함되고, 이후 보호 주소로 접속한 요청이 탐지·차단 로그로 연결됩니다.
+              </p>
+            </div>
+            <div class="connect-protection-orb" aria-hidden="true">
+              <div class="connect-orb-ring"></div>
+              <div class="connect-orb-shield">AI</div>
+              <span>Ready</span>
+            </div>
+          </div>
+          {% set dl_local = proxy_env_download_local %}
+          {% set dl_hint = proxy_env_download_hint %}
+          {% set zl_local = proxy_zip_download_local %}
+          {% set zl_hint = proxy_zip_download_hint %}
+          <div id="connect-page-data" hidden
+            data-central="{{ central_dashboard_url }}"
+            data-site-id="{{ sensor_site_id }}"
+            data-token="{{ sensor_token }}"></div>
+
+          <div class="card card-wide connect-bundle-card">
+            <h2>설치 파일 생성</h2>
+            <p class="scroll-hint">Juice Shop 등 보호할 웹사이트 주소만 넣고, 내 운영체제에 맞는 설치 버튼을 누르세요.</p>
+            <div class="settings-form settings-form-db" style="margin-bottom: .85rem;">
+              <label for="connect-worker-upstream">보호할 웹사이트 주소
+                <input type="url" id="connect-worker-upstream" class="mono-stat" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:3001" value="{{ upstream_hint_member or 'http://127.0.0.1:3001' }}" />
+              </label>
+              <p class="muted small" style="margin-top:0.35rem;">Juice Shop처럼 브라우저에 <code>#/</code> 가 붙은 주소를 그대로 붙여넣어도 설치 파일에는 <code>http://IP:포트</code> 형태로 정리해 넣습니다.</p>
+            </div>
+            <div class="install-flow">
+              <div class="install-flow-step">
+                <span class="install-step-num">1</span>
+                <strong>주소 입력</strong>
+                <span>WAF 뒤쪽에 둘 원본 웹사이트 주소를 입력합니다.</span>
+              </div>
+              <div class="install-flow-step">
+                <span class="install-step-num">2</span>
+                <strong>설치 버튼 클릭</strong>
+                <span>설치 파일을 받는 순간 설정 저장까지 같이 처리됩니다.</span>
+              </div>
+              <div class="install-flow-step">
+                <span class="install-step-num">3</span>
+                <strong>탐지·차단 확인</strong>
+                <span>보호 주소로 접속한 요청이 이 대시보드 로그에 쌓입니다.</span>
+              </div>
+            </div>
+            <div class="os-install-grid" aria-label="운영체제별 설치 버튼">
+              <a class="os-install-card" id="connect-install-macos" href="/__waf/api/me/install/macos">
+                <span class="os-install-icon os-install-icon-apple" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M16.7 2.2c.1 1.2-.4 2.3-1.1 3.1-.8.9-2 1.5-3.1 1.4-.1-1.1.4-2.2 1.1-3 .8-.9 2.1-1.5 3.1-1.5Z"/>
+                    <path d="M20.2 17.1c-.5 1.1-.8 1.6-1.4 2.6-.9 1.4-2.2 3.1-3.8 3.1-1.4 0-1.8-.9-3.7-.9s-2.4.9-3.8.9c-1.6 0-2.8-1.5-3.7-2.9-2.5-3.9-2.8-8.4-1.2-10.8 1.1-1.7 2.9-2.7 4.6-2.7 1.8 0 2.9 1 4.3 1s2.4-1 4.4-1c1.5 0 3.1.8 4.2 2.2-3.7 2-3.1 7.3.1 8.5Z"/>
+                  </svg>
+                </span>
+                <strong>macOS 설치</strong>
+                <span>더블클릭용 <code>.command</code> 파일</span>
+              </a>
+              <a class="os-install-card" id="connect-install-linux" href="/__waf/api/me/install/linux">
+                <span class="os-install-icon os-install-icon-linux" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 2.2c-2.5 0-4.1 2.1-4.1 5.3 0 1-.3 2.2-.9 3.3l-2 3.8c-.8 1.5.2 3.3 1.9 3.3h10.2c1.7 0 2.7-1.8 1.9-3.3l-2-3.8c-.6-1.1-.9-2.3-.9-3.3 0-3.2-1.6-5.3-4.1-5.3Z"/>
+                    <path d="M8 17.7 5.4 20c-.7.6-.3 1.8.7 1.8h3.4c.8 0 1.4-.6 1.4-1.4v-2.1"/>
+                    <path d="M16 17.7 18.6 20c.7.6.3 1.8-.7 1.8h-3.4c-.8 0-1.4-.6-1.4-1.4v-2.1"/>
+                    <circle cx="10.2" cy="7.1" r=".8"/>
+                    <circle cx="13.8" cy="7.1" r=".8"/>
+                    <path d="M10.3 10.1h3.4l-1.7 1.5-1.7-1.5Z"/>
+                  </svg>
+                </span>
+                <strong>Linux 설치</strong>
+                <span>서버 실행용 <code>.sh</code> 파일</span>
+              </a>
+              <a class="os-install-card" id="connect-install-windows" href="/__waf/api/me/install/windows">
+                <span class="os-install-icon os-install-icon-windows" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M3 5.4 10.8 4v7.4H3V5.4Z"/>
+                    <path d="M12.2 3.8 21 2.3v9.1h-8.8V3.8Z"/>
+                    <path d="M3 12.6h7.8V20L3 18.6v-6Z"/>
+                    <path d="M12.2 12.6H21v9.1l-8.8-1.5v-7.6Z"/>
+                  </svg>
+                </span>
+                <strong>Windows 설치</strong>
+                <span>PowerShell <code>.ps1</code> 파일</span>
+              </a>
+            </div>
+            <p class="feed-foot muted small" id="connect-copy-msg" role="status"></p>
+            {% if upstream_hint_member %}
+            <p class="muted small" style="margin-top:.5rem;">회원가입 때 넣은 URL이 초기값으로 들어가 있습니다. 필요하면 바꾼 뒤 설치 버튼을 누르세요.</p>
+            {% endif %}
+
+            <details class="connect-advanced-details" style="margin-top:1.25rem;">
+              <summary>고급: ZIP 패키지·개별 설정 받기</summary>
+              <div class="connect-bundle-actions" style="margin-top:.75rem;">
+                <a class="btn-gradient connect-bundle-cta" id="connect-download-zip" href="{{ zl_hint if zl_hint else zl_local }}">연결 패키지 받기 (ZIP)</a>
+                <button type="button" class="btn-ghost" id="connect-copy-all-env">설정 줄만 복사</button>
+              </div>
+              <dl class="settings-dl" style="margin-top:.75rem;">
+                <dt>CENTRAL_DASHBOARD_URL</dt>
+                <dd><code class="mono-stat">{{ central_dashboard_url }}</code>
+                  <button type="button" class="btn-ghost js-connect-copy" data-copy="{{ central_dashboard_url }}">복사</button>
+                </dd>
+                <dt>SITE_ID</dt>
+                <dd><code class="mono-stat">{{ sensor_site_id or "—" }}</code>
+                  {% if sensor_site_id %}<button type="button" class="btn-ghost js-connect-copy" data-copy="{{ sensor_site_id }}">복사</button>{% endif %}
+                </dd>
+                <dt>SENSOR_TOKEN</dt>
+                <dd><code class="mono-stat">{{ sensor_token or "—" }}</code>
+                  {% if sensor_token %}<button type="button" class="btn-ghost js-connect-copy" data-copy="{{ sensor_token }}">복사</button>{% endif %}
+                </dd>
+              </dl>
+              <p class="muted small">
+                <a class="btn-ghost" id="connect-download-env" href="{{ dl_hint if dl_hint else dl_local }}">waf-worker.env 파일만 받기</a>
+              </p>
+            </details>
+          </div>
+
+          <div class="card card-wide">
+            <h2>연결 상태 (이 계정 SITE_ID 로 쌓인 로그 건수)</h2>
+            {% if connect_effective_site %}
+            <p class="scroll-hint">사이트 <code class="mono-stat">{{ connect_effective_site }}</code></p>
+            <p style="font-size:1.5rem;"><strong id="connect-site-logged-count">{{ connect_site_logged if connect_site_logged is not none else '—' }}</strong>건</p>
+            <p class="muted small">0이어도 정상입니다. 워커를 아직 안 띄웠거나, 브라우저가 업스트림 포트만 직접 연 경우에는 로그가 없습니다.</p>
+            {% else %}
+            <p class="muted">사이트 ID가 비어 있습니다. 관리자에게 계정에 site_id 할당 여부를 확인하세요.</p>
+            {% endif %}
+          </div>
+          {% endif %}

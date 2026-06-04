@@ -1,0 +1,32 @@
+          <div class="card card-wide page-log-full">
+            <h2>DETECTIONS</h2>
+            <p id="detections-route-hint" class="scroll-hint muted small">이 화면은 차단된 요청의 OWASP 모듈, 규칙 ID, 증거를 보여줍니다.</p>
+            <div class="log-toolbar log-toolbar-detections" role="toolbar" aria-label="탐지 로그">
+              <button type="button" class="btn-ghost btn-danger-outline js-traffic-reset-all">초기화</button>
+            </div>
+            <div class="traffic-feed traffic-feed-scroll">
+              <table class="traffic-table traffic-table-detections">
+                <thead>
+                  <tr>
+                    <th>시각</th>
+                    <th>사이트</th>
+                    <th>IP</th>
+                    <th>Method</th>
+                    <th>Path</th>
+                    <th>OWASP</th>
+                    <th>카테고리</th>
+                    <th>공격</th>
+                    <th>위치</th>
+                    <th>규칙</th>
+                    <th>심각도</th>
+                    <th>증거</th>
+                    <th scope="col" class="col-actions">삭제</th>
+                  </tr>
+                </thead>
+                <tbody id="detections-feed-body">
+                  <tr><td colspan="13" class="traffic-empty">…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p id="detections-updated" class="feed-foot"></p>
+          </div>

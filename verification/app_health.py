@@ -18,3 +18,9 @@ def test_proxy_health_ok() -> None:
     assert "waf_block_min_severity" in data
     assert "process_started_at" in data
     assert len(str(data.get("process_started_at") or "")) >= 10
+    assert "central_ingest" in data
+    assert "configured" in data["central_ingest"]
+    assert "local_traffic_db_hint" in data
+    assert "ai_second_pass" in data
+    assert "enabled" in data["ai_second_pass"]
+    assert "last_decision" in data["ai_second_pass"]

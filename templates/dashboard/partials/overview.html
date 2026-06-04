@@ -1,0 +1,138 @@
+          <section class="card overview-panel overview-threat-card" aria-labelledby="overview-threat-title">
+            <div class="overview-card-head">
+              <h2 id="overview-threat-title">REAL-TIME THREAT LOG</h2>
+              <span class="overview-menu-dot" aria-hidden="true">•••</span>
+            </div>
+            <p id="pipeline-hint-banner" class="scroll-hint muted small" hidden>프록시 워커를 실행하고 WAF 주소로 접속하면 중앙 대시보드에 로그가 표시됩니다. <code>CENTRAL_DASHBOARD_URL</code>은 사이트 연결 화면의 값을 사용하세요.</p>
+            <div class="overview-threat-list" id="overview-threat-list" aria-live="polite">
+              <div class="overview-threat-empty">No threats</div>
+            </div>
+            <div class="overview-mini-status">
+              <span>Logs <strong id="kpi-total">0</strong></span>
+              <span>Blocked <strong id="kpi-blocked">0</strong></span>
+            </div>
+          </section>
+
+          <section class="card overview-panel overview-score-card card-kpi" aria-labelledby="overview-score-title">
+            <div class="overview-card-head">
+              <h2 id="overview-score-title">SECURITY SCORE</h2>
+              <span class="overview-icon-btn" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm0 3v5l3 2" /></svg>
+              </span>
+            </div>
+            <div class="overview-score-wrap">
+              <div class="kpi-donut-shell overview-score-shell" aria-hidden="true">
+                <div class="kpi-donut overview-score-ring" id="kpi-donut"></div>
+                <div class="kpi-donut-center overview-score-center">
+                  <span class="kpi-donut-pct" id="kpi-donut-pct">100%</span>
+                  <span class="kpi-donut-label" id="overview-score-label">Healthy</span>
+                </div>
+              </div>
+            </div>
+            <div class="overview-score-line" aria-hidden="true">
+              <svg viewBox="0 0 360 112" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="overviewLineCyan" x1="0" x2="1" y1="0" y2="0">
+                    <stop offset="0" stop-color="#22d3ee"/>
+                    <stop offset="1" stop-color="#a855f7"/>
+                  </linearGradient>
+                  <linearGradient id="overviewAreaGlow" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0" stop-color="#22d3ee" stop-opacity=".22"/>
+                    <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <path class="overview-chart-grid" d="M0 18H360M0 48H360M0 78H360"/>
+                <path class="overview-area" id="overview-line-area" d="M0 100 C35 64 58 86 88 52 S138 34 170 61 218 83 244 42 296 32 360 48 L360 112 L0 112Z"/>
+                <path class="overview-line overview-line-a" id="overview-line-total" d="M0 100 C35 64 58 86 88 52 S138 34 170 61 218 83 244 42 296 32 360 48"/>
+                <path class="overview-line overview-line-b" id="overview-line-blocked" d="M0 96 C42 40 82 66 112 80 S170 34 208 59 258 85 292 50 330 42 360 34"/>
+              </svg>
+              <div class="overview-axis"><span>00</span><span>08</span><span>16</span><span>24</span></div>
+            </div>
+            <div class="overview-score-meta">
+              <div class="kpi-block"><span class="kpi-num" id="kpi-ratio">0%</span><span class="kpi-label">Block Ratio</span></div>
+              <div class="kpi-bar-wrap" aria-hidden="true"><div class="kpi-bar-track"><div class="kpi-bar-fill" id="kpi-bar-fill"></div></div></div>
+            </div>
+            <p id="stats-updated" class="feed-foot stats-foot"></p>
+          </section>
+
+          <section class="card overview-panel overview-ai-card" aria-labelledby="overview-ai-title">
+            <div class="overview-card-head">
+              <h2 id="overview-ai-title">AI ANALYSIS</h2>
+              <span class="overview-menu-dot" aria-hidden="true">•••</span>
+            </div>
+            <div class="overview-ai-status" aria-live="polite">
+              <span class="pill muted" id="ai-second-pass-state">AI 보조 판단 · 이벤트 기준</span>
+              <strong id="ai-second-pass-count">0건</strong>
+            </div>
+            <div class="overview-legend" id="kpi-chips" aria-label="상위 탐지 유형"></div>
+            <div class="overview-bar-chart" aria-hidden="true" id="overview-bar-chart">
+              <span style="--h:72%"></span><span style="--h:54%"></span><span style="--h:38%"></span>
+              <span style="--h:88%"></span><span style="--h:42%"></span><span style="--h:66%"></span><span style="--h:78%"></span>
+            </div>
+            <div class="overview-axis"><span>00</span><span>04</span><span>08</span><span>12</span><span>16</span><span>20</span><span>24</span></div>
+            <div class="kpi-top" id="kpi-top-attacks">공격: —</div>
+            <div class="kpi-top" id="kpi-top-rules">규칙: —</div>
+            <div class="kpi-top" id="ai-second-pass-last">최근 AI 판단: —</div>
+          </section>
+
+          <section class="card overview-panel overview-ai-mini" aria-labelledby="overview-mini-title">
+            <div class="overview-card-head">
+              <h2 id="overview-mini-title">AI ANALYSIS</h2>
+              <span class="overview-menu-dot" aria-hidden="true">•••</span>
+            </div>
+            <div class="overview-mini-rings">
+              <div class="overview-mini-ring" style="--pct:90"><span>90%</span><small>Phishing</small></div>
+              <div class="overview-mini-ring purple" style="--pct:25"><span>25%</span><small>Data Leak</small></div>
+            </div>
+          </section>
+
+          <section class="card overview-panel overview-device-card" aria-labelledby="overview-device-title">
+            <div class="overview-card-head">
+              <h2 id="overview-device-title">DEVICE HEALTH</h2>
+              <span class="overview-menu-dot" aria-hidden="true">•••</span>
+            </div>
+            <div class="overview-device-grid">
+              <div class="overview-device-item">
+                <span class="overview-device-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M9 3h6v3h3v3h3v6h-3v3h-3v3H9v-3H6v-3H3V9h3V6h3V3Zm0 6v6h6V9H9Z"/></svg>
+                </span>
+                <strong>Traffic</strong><small id="overview-traffic-load-label">Load</small><span class="overview-device-bar" id="overview-traffic-load-bar"><i></i></span>
+              </div>
+              <div class="overview-device-item">
+                <span class="overview-device-icon purple" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M4 7h16v10H4V7Zm3 3h2v4H7v-4Zm4 0h2v4h-2v-4Zm4 0h2v4h-2v-4Z"/></svg>
+                </span>
+                <strong>Threat</strong><small id="overview-threat-pressure-label">Pressure</small><span class="overview-device-bar purple" id="overview-threat-pressure-bar"><i></i></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card overview-panel card-highlight" id="last-block-card">
+            <h2>RECENT BLOCK</h2>
+            <p id="last-block-body" class="last-block-body">—</p>
+            <button type="button" class="btn-ghost" id="btn-copy-last-block" hidden>복사</button>
+          </section>
+
+          <section class="card overview-panel overview-status-strip card-wide">
+            <div class="overview-status-cell">
+              <span class="overview-status-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 16 0v4a2 2 0 0 1-2 2h-3v-4h3v-2a6 6 0 0 0-12 0v2h3v4H6a2 2 0 0 1-2-2v-4Z"/></svg></span>
+              <strong>Link</strong>
+              <p id="upstream-status" role="status" aria-live="polite">…</p>
+              <p id="proxy-public-origin" class="mono-stat" hidden>{{ boot.proxy_public_origin if boot.get('proxy_public_origin') else '' }}</p>
+            </div>
+            <div class="overview-status-cell">
+              <span class="overview-status-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2 20 5v6c0 5.4-3.2 8.7-8 11-4.8-2.3-8-5.6-8-11V5l8-3Z"/></svg></span>
+              <strong>WAF</strong>
+              <div id="waf-enabled" class="waf-toggle-wrap" role="status" aria-live="polite">…</div>
+            </div>
+            <div class="overview-status-cell">
+              <span class="overview-status-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19h16M6 16V8m6 8V5m6 11v-5"/></svg></span>
+              <strong>Severity</strong>
+              <p id="waf-severity" class="sev-card-slot" role="status">…</p>
+            </div>
+            <div class="overview-status-cell">
+              <span class="overview-status-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 3h10l4 4v14H7V3Zm9 1v4h4M3 7h8"/></svg></span>
+              <strong>Body</strong>
+              <p id="body-preview-max" class="mono-stat">…</p>
+            </div>
+          </section>

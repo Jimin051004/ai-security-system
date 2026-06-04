@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ko" class="login-html">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>회원가입 · Guardian AI</title>
+  <meta name="color-scheme" content="dark light" />
+  <link rel="icon" href="/__waf/static/favicon-guardian-shield.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/__waf/static/css/dashboard.css" />
+  <style>
+    html.login-html { color-scheme: light; }
+    html.login-html, body.login-page { margin: 0; min-height: 100%; }
+    body.login-page::before { display: none !important; content: none !important; }
+    body.login-page {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 18% 18%, rgba(79, 209, 197, 0.28), transparent 26%),
+        radial-gradient(circle at 82% 72%, rgba(139, 92, 246, 0.22), transparent 30%),
+        linear-gradient(135deg, #effcff 0%, #f8fbff 47%, #f6f1ff 100%) !important;
+      color: #101828;
+      overflow-x: hidden;
+    }
+    .login-wrap {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.25rem;
+      box-sizing: border-box;
+    }
+    .login-wrap::before,
+    .login-wrap::after {
+      content: "";
+      position: fixed;
+      pointer-events: none;
+      opacity: 0.55;
+    }
+    .login-wrap::before {
+      inset: 7% auto auto -7rem;
+      width: 22rem;
+      height: 22rem;
+      border: 1px solid rgba(20, 184, 166, 0.2);
+      border-radius: 42% 58% 52% 48%;
+      transform: rotate(18deg);
+    }
+    .login-wrap::after {
+      right: -5rem;
+      bottom: 6%;
+      width: 24rem;
+      height: 24rem;
+      background-image:
+        linear-gradient(120deg, rgba(15, 23, 42, 0.08) 1px, transparent 1px),
+        linear-gradient(35deg, rgba(99, 102, 241, 0.12) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: radial-gradient(circle, #000 0 58%, transparent 70%);
+    }
+    .login-card {
+      position: relative; z-index: 2;
+      isolation: isolate;
+      width: 100%;
+      max-width: 460px;
+      min-height: min(780px, calc(100vh - 2.5rem));
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 252, 255, 0.78)) !important;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 30px;
+      padding: 2rem 2.15rem 1.55rem;
+      box-shadow: 0 30px 90px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(24px) saturate(1.2);
+      -webkit-backdrop-filter: blur(24px) saturate(1.2);
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+    }
+    .login-card::before,
+    .login-card::after {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      box-shadow: 0 18px 50px rgba(15, 23, 42, 0.12);
+    }
+    .login-card::before {
+      width: 4.2rem;
+      height: 4.2rem;
+      left: -3.4rem;
+      bottom: 7rem;
+      background:
+        radial-gradient(circle at 50% 42%, rgba(56, 189, 248, 0.35), transparent 35%),
+        rgba(255, 255, 255, 0.9);
+    }
+    .login-card::after {
+      width: 4.5rem;
+      height: 4.5rem;
+      right: -3.5rem;
+      top: 5rem;
+      background:
+        radial-gradient(circle at 55% 45%, rgba(124, 58, 237, 0.2), transparent 38%),
+        rgba(255, 255, 255, 0.9);
+    }
+    .signup-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .signup-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      color: #475467;
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+    .signup-brand-mark {
+      display: grid;
+      place-items: center;
+      width: 3rem;
+      height: 3rem;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 35% 25%, rgba(103, 232, 249, 0.95), transparent 28%),
+        linear-gradient(135deg, #08345f, #5b21b6 58%, #0f172a);
+      color: #dffcff;
+      font-size: 0.9rem;
+      box-shadow: 0 14px 32px rgba(37, 99, 235, 0.28);
+    }
+    .signup-login-link {
+      color: #0f766e;
+      font-size: 0.8rem;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .signup-hero {
+      padding: 0.4rem 0.15rem 0.1rem;
+      text-align: center;
+    }
+    .signup-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-bottom: 1rem;
+      padding: 0.4rem 0.65rem;
+      border-radius: 999px;
+      background: rgba(20, 184, 166, 0.12);
+      color: #0f766e;
+      font-size: 0.72rem;
+      font-weight: 900;
+      letter-spacing: -0.01em;
+    }
+    .login-title {
+      margin: 0;
+      color: #0f172a;
+      font-size: clamp(1.85rem, 5.8vw, 2.35rem);
+      line-height: 1.12;
+      font-weight: 950;
+      letter-spacing: -0.05em;
+    }
+    .login-subtitle {
+      max-width: 21rem;
+      margin: 0.65rem auto 0;
+      color: #667085;
+      font-size: 0.96rem;
+      line-height: 1.55;
+      letter-spacing: -0.02em;
+    }
+    .login-form {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+    }
+    .login-form-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 0.78rem;
+      margin-top: 0.15rem;
+    }
+    .login-field {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.75rem minmax(0, 1fr);
+      align-items: center;
+      justify-content: center;
+      min-height: 4.6rem;
+      padding: 0.75rem 1rem;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.34);
+      border-radius: 14px;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+      transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+    }
+    .login-field:focus-within {
+      border-color: rgba(20, 184, 166, 0.8);
+      box-shadow: 0 14px 34px rgba(20, 184, 166, 0.14);
+      transform: translateY(-1px);
+    }
+    .login-label {
+      grid-column: 2;
+      color: #64748b;
+      font-size: 0.72rem;
+      font-weight: 850;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .login-field-icon {
+      grid-row: 1 / span 2;
+      display: grid;
+      place-items: center;
+      width: 1.7rem;
+      height: 1.7rem;
+      border-radius: 0.55rem;
+      background: linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(139, 92, 246, 0.1));
+      color: #0f766e;
+      font-size: 0.68rem;
+      font-weight: 950;
+    }
+    .login-input {
+      box-sizing: border-box;
+      grid-column: 2;
+      appearance: none;
+      width: 100%;
+      margin-top: 0.34rem;
+      padding: 0;
+      border: 0;
+      outline: none;
+      background: transparent !important;
+      color: #111827 !important;
+      font-size: 0.98rem;
+      font-weight: 750;
+      letter-spacing: -0.02em;
+    }
+    .login-input::placeholder {
+      color: #c9ced8;
+      font-weight: 750;
+    }
+    .login-error {
+      margin: 0;
+      padding: 0.85rem 1rem;
+      border: 1px solid #fecaca;
+      border-radius: 18px;
+      background: #fff1f2;
+      color: #be123c;
+      font-size: 0.88rem;
+      font-weight: 800;
+      line-height: 1.45;
+    }
+    .signup-hint {
+      display: grid;
+      gap: 0.35rem;
+      margin: 0;
+      padding: 0.95rem 1rem;
+      border: 1px solid rgba(20, 184, 166, 0.12);
+      border-radius: 16px;
+      background: rgba(240, 253, 250, 0.55);
+      color: #667085;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      letter-spacing: -0.01em;
+    }
+    .signup-hint strong {
+      color: #344054;
+      font-size: 0.84rem;
+    }
+    .signup-hint code {
+      border-radius: 7px;
+      background: #fff;
+      padding: 0.12rem 0.38rem;
+      color: #0f766e;
+      font-size: 0.76rem;
+      font-weight: 800;
+    }
+    .signup-actions {
+      margin-top: auto;
+      padding-top: 1.45rem;
+    }
+    .login-btn {
+      width: 100%;
+      min-height: 3.7rem;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #35c7e8 0%, #5b7cfa 48%, #8b3ff4 100%);
+      color: #fff;
+      cursor: pointer;
+      font-size: 1rem;
+      font-weight: 950;
+      letter-spacing: -0.02em;
+      box-shadow: 0 16px 34px rgba(91, 124, 250, 0.3);
+      transition: transform 0.15s, background 0.15s, box-shadow 0.15s, opacity 0.15s;
+    }
+    .login-btn:hover {
+      background: linear-gradient(90deg, #22c5e8 0%, #4f6df7 48%, #7c3aed 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 18px 42px rgba(139, 63, 244, 0.32);
+    }
+    .login-btn:disabled {
+      background: #e5e7eb;
+      color: #ffffff;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+    .login-alt {
+      margin: 0.9rem 0 0;
+      text-align: center;
+      color: #98a2b3;
+      font-size: 0.86rem;
+      font-weight: 700;
+    }
+    .login-alt a {
+      color: #2563eb;
+      font-weight: 900;
+      text-decoration: none;
+    }
+    @media (max-width: 540px) {
+      .login-wrap {
+        align-items: stretch;
+        padding: 0;
+      }
+      .login-card {
+        max-width: none;
+        min-height: 100vh;
+        border: 0;
+        border-radius: 0;
+        padding: 1.35rem 1.45rem 1rem;
+        box-shadow: none;
+      }
+      .signup-hero {
+        padding-top: 2.65rem;
+      }
+      .login-field {
+        min-height: 4.9rem;
+        border-radius: 18px;
+      }
+      .signup-actions {
+        padding-bottom: max(0.7rem, env(safe-area-inset-bottom));
+      }
+    }
+  </style>
+</head>
+<body class="login-page">
+  <div class="login-wrap">
+    <div class="login-card login-card-wide">
+      <div class="signup-topbar">
+        <div class="signup-brand">
+          <span class="signup-brand-mark">AI</span>
+          <span>Guardian AI</span>
+        </div>
+        <a class="signup-login-link" href="/login">로그인</a>
+      </div>
+      <div class="signup-hero">
+        <div class="signup-eyebrow">AI-POWERED PROTECTION</div>
+        <h1 class="login-title">Create Your<br />Secure Account</h1>
+        <p class="login-subtitle">설치형 WAF를 연결하고 실시간 위협 탐지 대시보드를 시작하세요.</p>
+      </div>
+      {% if error %}
+      <div class="login-error" role="alert">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/register" autocomplete="on" class="login-form" id="register-form">
+        <div class="login-form-panel">
+          <div class="login-field">
+            <span class="login-field-icon" aria-hidden="true">ID</span>
+            <label class="login-label" for="username">아이디</label>
+            <input class="login-input" id="username" name="username" type="text" placeholder="예: teamwaf" minlength="3" maxlength="32" required autocomplete="username" autofocus />
+          </div>
+          <div class="login-field">
+            <span class="login-field-icon" aria-hidden="true">URL</span>
+            <label class="login-label" for="site_id">보호할 웹사이트</label>
+            <input class="login-input" id="site_id" name="site_id" type="text" placeholder="http://192.168.x.x:3000" minlength="2" maxlength="2048" required autocomplete="off" />
+          </div>
+          <div class="login-field">
+            <span class="login-field-icon" aria-hidden="true">PW</span>
+            <label class="login-label" for="password">비밀번호</label>
+            <input class="login-input" id="password" name="password" type="password" placeholder="8자 이상" minlength="8" maxlength="128" required autocomplete="new-password" />
+          </div>
+          <div class="login-field">
+            <span class="login-field-icon" aria-hidden="true">OK</span>
+            <label class="login-label" for="password_confirm">비밀번호 확인</label>
+            <input class="login-input" id="password_confirm" name="password_confirm" type="password" placeholder="다시 입력" minlength="8" maxlength="128" required autocomplete="new-password" />
+          </div>
+        </div>
+        <p class="signup-hint">
+          <strong>웹사이트 주소는 설치 화면에서 다시 바꿀 수 있습니다.</strong>
+          <span>Juice Shop 주소를 그대로 넣어도 됩니다. 예: <code>http://127.0.0.1:3001/#/</code></span>
+        </p>
+        <div class="signup-actions">
+          <button type="submit" class="login-btn" id="register-submit">SIGN UP</button>
+          <p class="login-alt">Already have an account? <a href="/login">Log In</a></p>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var form = document.getElementById("register-form");
+      var btn = document.getElementById("register-submit");
+      if (!form || !btn) return;
+      function syncButton() {
+        btn.disabled = !form.checkValidity();
+      }
+      form.addEventListener("input", syncButton);
+      form.addEventListener("change", syncButton);
+      syncButton();
+    })();
+  </script>
+</body>
+</html>

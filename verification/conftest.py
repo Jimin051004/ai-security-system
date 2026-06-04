@@ -8,3 +8,4 @@ import os
 os.environ.setdefault("UPSTREAM_URL", "http://127.0.0.1:3001")
 os.environ.setdefault("WAF_ENABLED", "true")
 os.environ.setdefault("WAF_BLOCK_MIN_SEVERITY", "high")
+os.environ.setdefault("TRAFFIC_LOG_DB", ":memory:")

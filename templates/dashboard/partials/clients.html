@@ -1,0 +1,30 @@
+          <div class="card card-wide page-log-full">
+            <h2>접속자 (고유 IP)</h2>
+            <p class="clients-hint">프록시를 경유한 <strong>고유 클라이언트 IP</strong>와 요청 수입니다. 저장소에 남아 있는 로그를 기준으로 집계합니다.</p>
+            <p class="clients-hint muted small">
+              Juice Shop(8081)에서 새로고침했다면 해당 요청이 이 대시보드가 쓰는 SQLite(<code>{{ boot.traffic_store.traffic_log_db_resolved if boot.get('traffic_store') else '' }}</code>)로 ingest되어야 접속자에 반영됩니다.
+              브라우저 개발자 도구에서 <code>/__waf/api/clients</code>(200)·프록시 <code>/__proxy/health</code>의 <code>central_ingest.ok</code>를 확인하세요.
+              정적 파일 캐시로 구버전 JS가 로드된 경우 새로 고침(Cmd+Shift+R) 후 다시 봐 주세요.
+            </p>
+            <p class="clients-big" aria-live="polite">
+              <span id="clients-count">0</span><span class="clients-label">명</span>
+              <span class="clients-sub" id="clients-requests-total"></span>
+            </p>
+            <div class="traffic-feed">
+              <table class="traffic-table">
+                <thead>
+                  <tr>
+                    <th>IP</th>
+                    <th>통과 요청</th>
+                    <th>첫 접속 (KST)</th>
+                    <th>마지막 (KST)</th>
+                    <th>User-Agent</th>
+                  </tr>
+                </thead>
+                <tbody id="clients-feed-body">
+                  <tr><td colspan="5" class="traffic-empty">…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p id="clients-updated" class="feed-foot"></p>
+          </div>

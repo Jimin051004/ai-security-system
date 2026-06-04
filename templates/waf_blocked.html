@@ -3,20 +3,24 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WAF 차단 — AI Security System</title>
+  <meta name="color-scheme" content="dark" />
+  <meta name="description" content="WAF에 의해 차단된 요청 — 탐지 요약" />
+  <title>요청 차단 · Guardian AI</title>
+  <link rel="icon" href="/__waf/static/favicon-guardian-shield.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/__waf/static/css/waf_blocked.css" />
 </head>
 <body>
+  <a class="wb-skip" href="#wb-main">본문으로</a>
 
   <!-- ── 상단 헤더 ── -->
   <header class="wb-topbar">
-    <span class="wb-topbar-logo">&#x1F6E1; AI Security WAF</span>
-    <span class="wb-topbar-tag">OWASP Top 10 : 2025</span>
-    <span class="wb-status-pill">403 BLOCKED</span>
+    <span class="wb-topbar-logo" translate="no">Guardian AI</span>
+    <span class="wb-topbar-tag">WAF · OWASP Top 10 : 2025</span>
+    <span class="wb-status-pill" aria-label="HTTP 403 Forbidden">403 BLOCKED</span>
   </header>
 
   <!-- ── 메인 컨테이너 ── -->
-  <main class="wb-container">
+  <main class="wb-container" id="wb-main">
 
     <!-- ── 헤드라인 카드 ── -->
     <div class="wb-headline-card">
@@ -27,7 +31,8 @@
       </div>
     </div>
 
-    <!-- ── 탐지 항목 카드(들) ── -->
+    <!-- ── 탐지 항목 카드(들) — fetch 403 후 리다이렉트 시 JS가 sessionStorage 로 전체 치환 ── -->
+    <div id="wb-findings-root">
     {% for row in rows %}
     <div class="wb-finding" data-sev="{{ row.severity }}">
 
@@ -47,6 +52,10 @@
       <table class="wb-detail-table">
         <tbody>
           <tr>
+            <td class="wb-dt-key">규칙 설명</td>
+            <td class="wb-dt-val wb-rule-explain">{{ row.rule_explain }}</td>
+          </tr>
+          <tr>
             <td class="wb-dt-key">규칙 ID</td>
             <td><code class="wb-code">{{ row.rule_id }}</code></td>
           </tr>
@@ -56,29 +65,29 @@
           </tr>
           <tr>
             <td class="wb-dt-key">탐지 증거</td>
-            <td class="wb-dt-val wb-evidence">{{ row.evidence }}</td>
+            <td class="wb-dt-val"><pre class="wb-evidence wb-evidence-block">{{ row.evidence }}</pre></td>
           </tr>
         </tbody>
       </table>
 
     </div>
     {% endfor %}
+    </div>
 
     <!-- ── OWASP 2025 카테고리 설명 (JS로 채움) ── -->
     <div class="wb-owasp-info" id="wb-owasp-info" hidden></div>
 
     <!-- ── 액션 버튼 ── -->
     <div class="wb-actions">
-      <a class="wb-btn wb-btn-back" href="javascript:history.back()">&#x2190; 이전 페이지</a>
-      <a class="wb-btn wb-btn-home" href="/"> 처음으로</a>
+      <a class="wb-btn wb-btn-back" href="javascript:history.back()">이전 페이지</a>
+      <a class="wb-btn wb-btn-home" href="/">프록시 홈</a>
     </div>
 
   </main>
 
   <!-- ── 푸터 ── -->
   <footer class="wb-footer">
-    AI Security WAF · OWASP Top 10 : 2025 기반 탐지 엔진 &nbsp;|&nbsp;
-    정상 요청이라면 시스템 관리자에게 문의하세요.
+    Guardian AI · 역방향 프록시 WAF · 정상 요청이면 관리자에게 문의하세요.
   </footer>
 
   <!-- boot 데이터 (JS가 읽음) -->

@@ -718,4 +718,4 @@ async def scan(ctx: RequestContext) -> ModuleScanResult:
         module_id=MODULE_ID,
         owasp_id=OWASP_ID,
         findings=_deduplicate(findings),
-    )
+    ) 

@@ -1,0 +1,125 @@
+# WAF + Caddy (TLS) + Dashboard + Juice-Shop 통합 스택
+# ============================================================
+# 시작 (프로덕션):
+#   ACME_EMAIL=you@example.com docker compose -f docker-compose.waf.yml up -d
+#
+# 시작 (로컬 개발 — 자체서명 TLS):
+#   CADDY_CONFIG=infra/Caddyfile.dev docker compose -f docker-compose.waf.yml up -d
+#
+# Juice Shop 데모 타깃 포함:
+#   docker compose -f docker-compose.waf.yml --profile demo up -d
+#
+# 환경 변수 (.env 파일로 관리):
+#   ACME_EMAIL         Let's Encrypt 알림 이메일 (필수)
+#   WAF_SECRET_KEY     세션 서명 키 (필수, 길고 무작위하게)
+#   CADDY_CONFIG       Caddyfile 경로 (기본: infra/Caddyfile)
+#   UPSTREAM_URL       싱글-사이트 폴백 upstream (기본: http://juice-shop:3000)
+# ============================================================
+
+name: waf-full-stack
+
+services:
+
+  # ── WAF 프록시 ─────────────────────────────────────────────
+  waf:
+    build:
+      context: .
+      dockerfile: docker/waf/Dockerfile
+    expose:
+      - "8000"
+    environment:
+      WAF_SECRET_KEY:          ${WAF_SECRET_KEY:-change-me-please}
+      UPSTREAM_URL:            ${UPSTREAM_URL:-http://juice-shop:3000}
+      SITE_ID:                 ${SITE_ID:-default}
+      WAF_BLOCK_MIN_SEVERITY:  ${WAF_BLOCK_MIN_SEVERITY:-high}
+      WAF_SEED_DEFAULT_USERS:  ${WAF_SEED_DEFAULT_USERS:-true}
+      TRAFFIC_LOG_DB:          /app/data/waf_traffic.sqlite3
+      WAF_AUTH_DB:             /app/data/waf_auth.sqlite3
+    volumes:
+      - waf-data:/app/data
+    networks:
+      - internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/__proxy/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── 대시보드 ────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/dashboard/Dockerfile
+    ports:
+      # 관리자만 접근: 방화벽으로 8080 포트를 외부 노출 제한 권장
+      - "127.0.0.1:8080:8080"
+    environment:
+      WAF_SECRET_KEY:         ${WAF_SECRET_KEY:-change-me-please}
+      WAF_SEED_DEFAULT_USERS: ${WAF_SEED_DEFAULT_USERS:-true}
+      WAF_ALLOW_REGISTRATION: ${WAF_ALLOW_REGISTRATION:-true}
+      TRAFFIC_LOG_DB:         /app/data/waf_traffic.sqlite3
+      WAF_AUTH_DB:            /app/data/waf_auth.sqlite3
+    volumes:
+      # WAF와 동일 SQLite 볼륨 공유 (같은 DB 파일 접근)
+      - waf-data:/app/data
+    networks:
+      - internal
+    depends_on:
+      waf:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/__waf/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Caddy (TLS 종단 / 리버스 프록시) ───────────────────────
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"     # HTTP/3 (QUIC)
+    volumes:
+      - ./${CADDY_CONFIG:-infra/Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data          # ACME 인증서 영속 저장
+      - caddy-config:/config      # Caddy 내부 설정 캐시
+      - caddy-logs:/var/log/caddy
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    networks:
+      - internal
+    depends_on:
+      waf:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Juice Shop (데모 타깃, --profile demo 시만 실행) ────────
+  juice-shop:
+    build:
+      context: ./docker/juice-shop
+      dockerfile: Dockerfile
+      args:
+        JUICE_SHOP_REF: v19.2.1
+    image: ai-security-system/juice-shop:path-location
+    expose:
+      - "3000"
+    networks:
+      - internal
+    restart: unless-stopped
+    profiles:
+      - demo
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  waf-data:       # SQLite DB (WAF + 대시보드 공유)
+  caddy-data:     # Let's Encrypt 인증서
+  caddy-config:   # Caddy 설정 캐시
+  caddy-logs:     # Caddy 접근 로그

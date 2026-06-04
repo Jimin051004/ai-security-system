@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ko" class="login-html">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>프록시 워커 로그 · 로그인</title>
+  <meta name="color-scheme" content="dark light" />
+  <link rel="stylesheet" href="/__waf/static/css/dashboard.css" />
+  <style>
+    html.login-html { color-scheme: light; }
+    html.login-html, body.login-page { margin: 0; min-height: 100%; }
+    body.login-page::before { display: none !important; content: none !important; }
+    body.login-page {
+      background:
+        radial-gradient(ellipse 90% 80% at 50% 0%, rgba(99, 102, 241, 0.18), transparent 55%),
+        #070a12 !important;
+    }
+    .login-wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      box-sizing: border-box;
+    }
+    .login-card {
+      width: 100%;
+      max-width: 440px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      border: 2px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
+    }
+    .muted { font-size: 0.82rem; color: #64748b; margin: 0.25rem 0 1rem; }
+    .badge-site {
+      font-family: ui-monospace, monospace;
+      font-size: 0.75rem;
+      background: rgba(79, 70, 229, 0.12);
+      color: #4338ca;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+    }
+    label { display: block; font-weight: 600; color: #1e293b; margin-bottom: 0.35rem; font-size: 0.9rem; }
+    input[type=text], input[type=password] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.65rem 0.85rem;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      margin-bottom: 1rem;
+      font-size: 1rem;
+    }
+    button[type=submit] {
+      width: 100%;
+      padding: 0.75rem;
+      border: none;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 1rem;
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      color: #fff;
+      cursor: pointer;
+    }
+    .err { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.65rem 0.85rem; border-radius: 10px; margin-bottom: 1rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body class="login-page">
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-brand" style="display:flex;gap:0.75rem;align-items:center;margin-bottom:0.5rem;">
+        <span style="font-size:2rem;">🛡</span>
+        <div>
+          <div style="font-weight:800;color:#1e293b;">프록시 워커 로그</div>
+          <div style="font-size:0.8rem;color:#64748b;">이 포트({{ site_id | e }} 사이트) SQLite 트래픽</div>
+        </div>
+      </div>
+      <p class="muted"><span class="badge-site">SITE_ID={{ site_id | e }}</span> · 관리자만 로그인 가능합니다.<br/>
+        (중앙 대시보드와 동일 <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;">admin</code> 계정 사용)</p>
+      {% if error %}
+      <div class="err" role="alert">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/__waf/worker/login" autocomplete="on">
+        <label for="u">아이디</label>
+        <input id="u" type="text" name="username" required maxlength="64" autocomplete="username" />
+        <label for="p">비밀번호</label>
+        <input id="p" type="password" name="password" required maxlength="128" autocomplete="current-password" />
+        <button type="submit">로그인 후 로그 보기</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

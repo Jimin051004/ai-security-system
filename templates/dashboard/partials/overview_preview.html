@@ -1,0 +1,140 @@
+          {% set stats = boot.dashboard_stats if boot.get('dashboard_stats') else {} %}
+          {% set total = stats.total_logged if stats.get('total_logged') is not none else 0 %}
+          {% set blocked = stats.blocked_count if stats.get('blocked_count') is not none else 0 %}
+          {% set passed = stats.passed_count if stats.get('passed_count') is not none else 0 %}
+          {% set ratio = ((stats.block_ratio if stats.get('block_ratio') is not none else 0) * 100) | round(1) %}
+          {% set top_attacks = stats.top_attack_types if stats.get('top_attack_types') else [] %}
+          {% set top_rules = stats.top_rule_ids if stats.get('top_rule_ids') else [] %}
+
+          <section class="preview-hero card card-wide" aria-labelledby="preview-title">
+            <div class="preview-hero-main">
+              <p class="preview-eyebrow">Preview · Guardian AI Dashboard</p>
+              <h2 id="preview-title">보안 운영자가 바로 판단할 수 있는 화면</h2>
+              <p>최근 상태, 전체 차단 현황, AI 보조 판단, 다음 행동을 한 화면에서 분리해 보여주는 개선안입니다.</p>
+            </div>
+            <div class="preview-actions" aria-label="주요 이동">
+              <a class="btn-ghost" href="/__waf/dashboard/detections">탐지 상세 보기</a>
+              <a class="btn-ghost" href="/__waf/dashboard/traffic">프록시 로그 보기</a>
+              <a class="btn-ghost" href="/__waf/dashboard/settings">설정 확인</a>
+            </div>
+          </section>
+
+          <section class="preview-kpi-strip card card-wide" aria-label="핵심 지표">
+            <div class="preview-kpi">
+              <span>전체 로그</span>
+              <strong>{{ total }}</strong>
+              <small>SQLite 저장 기준</small>
+            </div>
+            <div class="preview-kpi danger">
+              <span>전체 차단</span>
+              <strong>{{ blocked }}</strong>
+              <small>탐지·차단 상세와 연결</small>
+            </div>
+            <div class="preview-kpi">
+              <span>차단율</span>
+              <strong>{{ ratio }}%</strong>
+              <small>{{ passed }}건 통과</small>
+            </div>
+            <div class="preview-kpi ai">
+              <span>AI 보조 차단</span>
+              <strong id="preview-ai-count">0</strong>
+              <small>AI-SECOND-PASS 이벤트</small>
+            </div>
+          </section>
+
+          <section class="preview-panel preview-recent card" aria-labelledby="preview-recent-title">
+            <div class="preview-card-head">
+              <h2 id="preview-recent-title">최근 위협</h2>
+              <span class="pill muted">최근 이벤트 기준</span>
+            </div>
+            <div class="preview-empty-threat" id="preview-recent-threat">
+              <strong>최근 차단 없음</strong>
+              <span>전체 차단 {{ blocked }}건은 탐지 상세에서 확인할 수 있습니다.</span>
+            </div>
+            <a class="preview-card-link" href="/__waf/dashboard/detections">차단 로그로 이동</a>
+          </section>
+
+          <section class="preview-panel preview-score card" aria-labelledby="preview-score-title">
+            <div class="preview-card-head">
+              <h2 id="preview-score-title">보안 상태</h2>
+              <span class="pill ok">운영 요약</span>
+            </div>
+            <div class="preview-score-main">
+              <div class="preview-score-ring" style="--score: {{ 100 - ratio }}">
+                <strong>{{ (100 - ratio) | round(0) }}%</strong>
+                <span>Healthy</span>
+              </div>
+              <dl>
+                <div><dt>계산 근거</dt><dd>100 - 차단율</dd></div>
+                <div><dt>차단율</dt><dd>{{ ratio }}%</dd></div>
+                <div><dt>전체 요청</dt><dd>{{ total }}건</dd></div>
+              </dl>
+            </div>
+          </section>
+
+          <section class="preview-panel preview-ai card" aria-labelledby="preview-ai-title">
+            <div class="preview-card-head">
+              <h2 id="preview-ai-title">AI Second Pass</h2>
+              <span class="pill muted">보조 판단</span>
+            </div>
+            <div class="preview-ai-status">
+              <strong id="preview-ai-state">AI 보조 차단 없음</strong>
+              <span>AI는 기존 룰을 대체하지 않고, 애매한 요청을 한 번 더 판단합니다.</span>
+            </div>
+            <dl class="preview-ai-meta">
+              <div><dt>기본 모델</dt><dd>qwen2.5:7b-instruct</dd></div>
+              <div><dt>차단 기준</dt><dd>confidence ≥ 0.75</dd></div>
+              <div><dt>실패 처리</dt><dd>기존 WAF 정책으로 fallback</dd></div>
+            </dl>
+          </section>
+
+          <section class="preview-panel preview-top card" aria-labelledby="preview-top-title">
+            <div class="preview-card-head">
+              <h2 id="preview-top-title">Top 공격 유형</h2>
+              <span class="pill muted">상위 3개</span>
+            </div>
+            <ol class="preview-rank-list">
+              {% for item in top_attacks[:3] %}
+              <li><span>{{ item.key }}</span><strong>{{ item.count }}</strong></li>
+              {% else %}
+              <li><span>탐지된 공격 없음</span><strong>0</strong></li>
+              {% endfor %}
+            </ol>
+          </section>
+
+          <section class="preview-panel preview-top card" aria-labelledby="preview-rules-title">
+            <div class="preview-card-head">
+              <h2 id="preview-rules-title">Top 규칙</h2>
+              <span class="pill muted">상위 3개</span>
+            </div>
+            <ol class="preview-rank-list">
+              {% for item in top_rules[:3] %}
+              <li><span class="mono-stat">{{ item.key }}</span><strong>{{ item.count }}</strong></li>
+              {% else %}
+              <li><span>탐지된 규칙 없음</span><strong>0</strong></li>
+              {% endfor %}
+            </ol>
+          </section>
+
+          <section class="preview-system-strip card card-wide" aria-label="시스템 상태">
+            <div>
+              <span>대시보드 모드</span>
+              <strong>중앙 로그 집계</strong>
+              <small>워커 업스트림 상태는 프록시 health에서 확인</small>
+            </div>
+            <div>
+              <span>WAF 상태</span>
+              <strong>사이트 선택 후 확인</strong>
+              <small>사이트 필터에서 개별 정책 전환</small>
+            </div>
+            <div>
+              <span>차단 기준</span>
+              <strong>워커별 설정</strong>
+              <small>WAF_BLOCK_MIN_SEVERITY</small>
+            </div>
+            <div>
+              <span>본문 검사 크기</span>
+              <strong>{{ boot.body_preview_max }} bytes</strong>
+              <small>body preview limit</small>
+            </div>
+          </section>
