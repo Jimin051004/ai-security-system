@@ -437,6 +437,44 @@ async def _main_startup() -> None:
 
 METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
 WAF_UI_PREFIX = "/__waf"
+_UPSTREAM_STATIC_EXTENSIONS = (
+    ".css",
+    ".js",
+    ".mjs",
+    ".ico",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".map",
+)
+_UPSTREAM_STATIC_PREFIXES = (
+    "assets/",
+    "frontend/",
+    "i18n/",
+)
+
+
+def _is_upstream_static_asset(full_path: str, method: str) -> bool:
+    """SPA 렌더링 필수 정적 리소스는 WAF 스캔 전에 origin으로 통과시킨다.
+
+    공격 페이로드가 들어가는 API/form 요청은 계속 검사하고, JS/CSS/이미지/폰트 같은
+    빌드 산출물만 예외 처리한다.
+    """
+    if method.upper() not in ("GET", "HEAD", "OPTIONS"):
+        return False
+    p = (full_path or "").lstrip("/").split("?", 1)[0].split("#", 1)[0]
+    lower = p.lower()
+    if not lower:
+        return False
+    if lower.startswith(_UPSTREAM_STATIC_PREFIXES):
+        return True
+    return lower.endswith(_UPSTREAM_STATIC_EXTENSIONS)
 
 
 def _waf_unknown_path_response() -> JSONResponse:
@@ -899,6 +937,10 @@ async def proxy_path(full_path: str, request: Request) -> Response:
             resp = await _forward(request, full_path, upstream_base=_upstream_base, upstream_host=_upstream_host)
             await _record_proxy_event(request, status_code=resp.status_code, blocked=False)
             return resp
+    if _is_upstream_static_asset(full_path, request.method):
+        resp = await _forward(request, full_path, upstream_base=_upstream_base, upstream_host=_upstream_host)
+        await _record_proxy_event(request, status_code=resp.status_code, blocked=False)
+        return resp
     if _route and _route.mode == "disabled":
         resp = await _forward(request, full_path, upstream_base=_upstream_base, upstream_host=_upstream_host)
         await _record_proxy_event(request, status_code=resp.status_code, blocked=False)

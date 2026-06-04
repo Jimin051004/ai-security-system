@@ -62,6 +62,14 @@ _RULES: tuple[_Rule, ...] = (
     ),
 )
 
+_SAFE_BOOT_PATHS = frozenset(
+    {
+        # Juice Shop SPA가 초기 화면 구성에 사용하는 정상 설정 API.
+        # `/admin` 직접 접근 차단은 유지하되, 이 부트스트랩 API는 통과시킨다.
+        "/rest/admin/application-configuration",
+    }
+)
+
 
 def _decode_layers(value: str) -> list[str]:
     variants = [value]
@@ -75,7 +83,10 @@ def _decode_layers(value: str) -> list[str]:
 
 
 def _collect_targets(ctx: RequestContext) -> list[tuple[str, str]]:
-    targets = [("path", ctx.path or "/")]
+    path = ctx.path or "/"
+    targets: list[tuple[str, str]] = []
+    if path not in _SAFE_BOOT_PATHS:
+        targets.append(("path", path))
     if ctx.query_string:
         targets.append(("query", ctx.query_string))
     if ctx.body_preview:

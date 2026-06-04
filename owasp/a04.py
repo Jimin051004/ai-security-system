@@ -141,12 +141,6 @@ def _collect_ssrf_targets(ctx: RequestContext) -> list[tuple[str, str]]:
         except Exception:
             pass
 
-    # Referer·Origin 헤더 (SSRF bypass 경로)
-    for hdr in ("referer", "x-forwarded-for", "x-real-ip", "origin"):
-        val = ctx.headers.get(hdr, "")
-        if val:
-            targets.append((f"header.{hdr}", val))
-
     return targets
 
 
